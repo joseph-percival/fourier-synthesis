@@ -11,6 +11,12 @@
 			"name": "Test",
 			"description": "Naive VCO",
 			"tags": ["VCO", "Polyphonic"]
+		},
+		{
+			"slug": "fourier-synthesis",
+			"name": "Fourier Synthesis",
+			"description": "Naive VCO",
+			"tags": ["VCO", "Polyphonic"]
 		}
     ]
 }

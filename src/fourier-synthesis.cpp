@@ -1,10 +1,14 @@
 #include "fourier-synthesis-plugin.hpp"
-
+#include <iostream>
 #include <fftw3.h>
 
 struct FourierSynthesis : Module {
     int bufferSize;
     int numSinusoids;
+    int param2;
+    int param3;
+    fftw_plan forward_plan;
+    fftw_plan backward_plan;
 
     enum ParamIds {
         BUFFER_PARAM,
@@ -30,26 +34,66 @@ struct FourierSynthesis : Module {
 
     FourierSynthesis() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
-        configParam(BUFFER_PARAM,0.f,40.f,1.f,"Buffer Size");
+        configParam(BUFFER_PARAM,0.f,400.f,1.f,"Buffer Size");
+		getParamQuantity(BUFFER_PARAM)->snapEnabled = true;
         configParam(SINES_PARAM,0.f,40.f,1.f,"Number of Sinusoids");
     }
 
     void process(const ProcessArgs& args) override {
-        bufferSize = params[BUFFER_PARAM].getValue();
-        numSinusoids = params[SINES_PARAM].getValue();
+        // outputs[OUTPUT_LEFT].setVoltage(bufferSize);
+        // outputs[OUTPUT_RIGHT].setVoltage(numSinusoids);
+        if (paramsModified()){
+            bufferSize = params[BUFFER_PARAM].getValue();
+            numSinusoids = params[SINES_PARAM].getValue();
+            param2 = params[PARAM_2].getValue();
+            param3 = params[PARAM_3].getValue();
 
-        outputs[OUTPUT_LEFT].setVoltage(bufferSize);
-        outputs[OUTPUT_RIGHT].setVoltage(numSinusoids);
+            int N = 8;
+            std::vector<int> real_input = {10, 20, 30, 40, 50, 60, 70, 80};
+            // Allocate input array for FFTW (type double for FFTW's precision)
+            double* in = fftw_alloc_real(N);
+            // Copy integer data to the FFTW input array as double
+            for (int i = 0; i < N; i++) {
+                in[i] = static_cast<double>(real_input[i]);
+            }
+            // Allocate output array for FFTW
+            fftw_complex* out = fftw_alloc_complex(N / 2 + 1); // FFTW's real-to-complex output size
+            generatePlan(N, in, out);
+        }
 
-        int N = 5;
-        fftw_complex in[N], out[N];
-        fftw_plan plan = fftw_plan_dft_1d(N, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
+        // Create a plan for real-to-complex 1D FFT
+        // Execute the FFT
+        fftw_execute(forward_plan);
+        fftw_execute(backward_plan);
+        // Print the output (frequency domain)
+        // std::cout << "Frequency domain output:" << std::endl;
+        // for (int i = 0; i < N; i++) {
+        //     std::cout << in[i] << std::endl;
+        // }
+        std::cout << paramsModified();
+        // // Need to scale output by N.
+        // fftw_destroy_plan(forward_plan);
+        // fftw_destroy_plan(backward_plan);
+        // fftw_free(in);
+        // fftw_free(out);
+    }
 
-        
-        fftw_execute(plan);
-        fftw_destroy_plan(plan);  
-    }  
+    void generatePlan(int N, double* in, fftw_complex* out) {
+        forward_plan = fftw_plan_dft_r2c_1d(N, in, out, FFTW_ESTIMATE);
+        backward_plan = fftw_plan_dft_c2r_1d(N, out, in, FFTW_ESTIMATE);
+    }
+
+    bool paramsModified() {
+        if (params[BUFFER_PARAM].getValue() != bufferSize) return true;
+        if (params[SINES_PARAM].getValue() != numSinusoids) return true;
+        if (params[PARAM_2].getValue() != param2) return true;
+        if (params[PARAM_3].getValue() != param3) return true;
+        // else all paramaters are unmodified
+        return false;
+    }
+
 };
+
 struct FourierSynthesisWidget : ModuleWidget {
     FourierSynthesisWidget(FourierSynthesis* module) {
         setModule(module);

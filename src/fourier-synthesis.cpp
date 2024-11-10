@@ -9,6 +9,10 @@ struct FourierSynthesis : Module {
     int param3;
     fftw_plan forward_plan;
     fftw_plan backward_plan;
+    double* real_in;
+    fftw_complex* freq_out;
+    double* real_out;
+    int buffer_index;
 
     enum ParamIds {
         BUFFER_PARAM,
@@ -37,59 +41,82 @@ struct FourierSynthesis : Module {
         configParam(BUFFER_PARAM,0.f,400.f,1.f,"Buffer Size");
 		getParamQuantity(BUFFER_PARAM)->snapEnabled = true;
         configParam(SINES_PARAM,0.f,40.f,1.f,"Number of Sinusoids");
+        //initialise params & buffers
+        bufferSize = params[BUFFER_PARAM].getValue();
+        numSinusoids = params[SINES_PARAM].getValue();
+        param2 = params[PARAM_2].getValue();
+        param3 = params[PARAM_3].getValue();
+        buffer_index = 0;
+        initialiseResources();
+    }
+
+        ~FourierSynthesis() {
+        if (real_in) fftw_free(real_in);
+        if (real_out) fftw_free(real_out);
+        if (freq_out) fftw_free(freq_out);
+        if (forward_plan) fftw_destroy_plan(forward_plan);
+        if (backward_plan) fftw_destroy_plan(backward_plan);
     }
 
     void process(const ProcessArgs& args) override {
         // outputs[OUTPUT_LEFT].setVoltage(bufferSize);
         // outputs[OUTPUT_RIGHT].setVoltage(numSinusoids);
+
         if (paramsModified()){
+            //reevaluate params & buffers
             bufferSize = params[BUFFER_PARAM].getValue();
             numSinusoids = params[SINES_PARAM].getValue();
             param2 = params[PARAM_2].getValue();
             param3 = params[PARAM_3].getValue();
-
-            int N = 8;
-            std::vector<int> real_input = {10, 20, 30, 40, 50, 60, 70, 80};
-            // Allocate input array for FFTW (type double for FFTW's precision)
-            double* in = fftw_alloc_real(N);
-            // Copy integer data to the FFTW input array as double
-            for (int i = 0; i < N; i++) {
-                in[i] = static_cast<double>(real_input[i]);
-            }
-            // Allocate output array for FFTW
-            fftw_complex* out = fftw_alloc_complex(N / 2 + 1); // FFTW's real-to-complex output size
-            generatePlan(N, in, out);
+            buffer_index = 0;
+            initialiseResources();
         }
 
-        // Create a plan for real-to-complex 1D FFT
-        // Execute the FFT
-        fftw_execute(forward_plan);
-        fftw_execute(backward_plan);
-        // Print the output (frequency domain)
+        if (buffer_index < bufferSize) {
+            //stream data from the input to the buffer
+            real_in[buffer_index] = static_cast<double>(inputs[INPUT_LEFT].getVoltage());
+            //simultaneously output the data from the previous buffer
+            outputs[OUTPUT_LEFT].setVoltage(real_out[buffer_index]);
+            buffer_index++;
+        } else {
+            //make sure you don't miss a sample here
+            buffer_index = 0;
+            fftw_execute(forward_plan);
+            fftw_execute(backward_plan);
+            //process data
+        }
+
         // std::cout << "Frequency domain output:" << std::endl;
         // for (int i = 0; i < N; i++) {
         //     std::cout << in[i] << std::endl;
         // }
-        std::cout << paramsModified();
+        // std::cout << paramsModified();
         // // Need to scale output by N.
-        // fftw_destroy_plan(forward_plan);
-        // fftw_destroy_plan(backward_plan);
-        // fftw_free(in);
-        // fftw_free(out);
-    }
-
-    void generatePlan(int N, double* in, fftw_complex* out) {
-        forward_plan = fftw_plan_dft_r2c_1d(N, in, out, FFTW_ESTIMATE);
-        backward_plan = fftw_plan_dft_c2r_1d(N, out, in, FFTW_ESTIMATE);
     }
 
     bool paramsModified() {
-        if (params[BUFFER_PARAM].getValue() != bufferSize) return true;
-        if (params[SINES_PARAM].getValue() != numSinusoids) return true;
-        if (params[PARAM_2].getValue() != param2) return true;
-        if (params[PARAM_3].getValue() != param3) return true;
-        // else all paramaters are unmodified
-        return false;
+        return params[BUFFER_PARAM].getValue() != bufferSize ||
+               params[SINES_PARAM].getValue() != numSinusoids ||
+               params[PARAM_2].getValue() != param2 ||
+               params[PARAM_3].getValue() != param3;
+    }
+
+    void initialiseResources() {
+        // free resources
+        if (real_in) fftw_free(real_in);
+        if (freq_out) fftw_free(freq_out);
+        if (real_out) fftw_free(real_out);
+        if (forward_plan) fftw_destroy_plan(forward_plan);
+        if (backward_plan) fftw_destroy_plan(backward_plan);
+
+        // allocate buffers
+        real_in = fftw_alloc_real(bufferSize);
+        freq_out = fftw_alloc_complex(bufferSize / 2 + 1);
+        real_out = fftw_alloc_real(bufferSize);
+
+        // generate plans
+        forward_plan = fftw_plan_dft_r2c_1d(bufferSize, real_in, freq_out, FFTW_ESTIMATE);
+        backward_plan = fftw_plan_dft_c2r_1d(bufferSize, freq_out, real_out, FFTW_ESTIMATE);
     }
 
 };

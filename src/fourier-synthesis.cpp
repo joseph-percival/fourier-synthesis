@@ -38,7 +38,7 @@ struct FourierSynthesis : Module {
 
     FourierSynthesis() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
-        configParam(BUFFER_PARAM,0.f,400.f,1.f,"Buffer Size");
+        configParam(BUFFER_PARAM,1.f,400.f,1.f,"Buffer Size");
 		getParamQuantity(BUFFER_PARAM)->snapEnabled = true;
         configParam(SINES_PARAM,0.f,40.f,1.f,"Number of Sinusoids");
         //initialise params & buffers
@@ -77,6 +77,7 @@ struct FourierSynthesis : Module {
             real_in[buffer_index] = static_cast<double>(inputs[INPUT_LEFT].getVoltage());
             //simultaneously output the data from the previous buffer
             outputs[OUTPUT_LEFT].setVoltage(real_out[buffer_index]);
+            outputs[OUTPUT_RIGHT].setVoltage(inputs[INPUT_RIGHT].getVoltage);
             buffer_index++;
         } else {
             //make sure you don't miss a sample here

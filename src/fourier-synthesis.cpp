@@ -78,7 +78,7 @@ struct FourierSynthesis : Module {
             //simultaneously output the data from the previous buffer
             //divide by bufferSize since the output of FFTW is scaled by the size of the input buffer
             outputs[OUTPUT_LEFT].setVoltage(real_out[buffer_index] / bufferSize);
-            outputs[OUTPUT_RIGHT].setVoltage(inputs[INPUT_RIGHT].getVoltage);
+            outputs[OUTPUT_RIGHT].setVoltage(inputs[INPUT_RIGHT].getVoltage());
             buffer_index++;
         } else {
             //make sure you don't miss a sample here

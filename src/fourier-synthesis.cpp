@@ -68,6 +68,7 @@ struct FourierSynthesis : Module {
         // outputs[OUTPUT_RIGHT].setVoltage(sampleRate);
 
         if (paramsModified()){
+            // crossfadeBuffer();
             //reevaluate params & buffers
             bufferSize = params[BUFFER_PARAM].getValue();
             sampleRate = params[SAMPLE_RATE_PARAM].getValue();
@@ -105,6 +106,12 @@ struct FourierSynthesis : Module {
         //     std::cout << in[i] << std::endl;
         // }
         // std::cout << paramsModified();
+    }
+
+    void crossfadeBuffer() {
+        for (int i = 0; i < bufferSize; i++) {
+            real_out[i] = (real_out[i] * 0.5) + (real_in[i] * 0.5);
+        }
     }
 
     bool paramsModified() {

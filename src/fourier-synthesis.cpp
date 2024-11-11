@@ -4,7 +4,7 @@
 
 struct FourierSynthesis : Module {
     int bufferSize;
-    int numSinusoids;
+    int sampleRate;
     int param2;
     int param3;
     fftw_plan forward_plan;
@@ -12,11 +12,12 @@ struct FourierSynthesis : Module {
     double* real_in;
     fftw_complex* freq_out;
     double* real_out;
-    int buffer_index;
+    int bufferIndex;
+    int sampleRateIndex;
 
     enum ParamIds {
         BUFFER_PARAM,
-        SINES_PARAM,
+        SAMPLE_RATE_PARAM,
         PARAM_2,
         PARAM_3,
         NUM_PARAMS
@@ -38,15 +39,19 @@ struct FourierSynthesis : Module {
 
     FourierSynthesis() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
-        configParam(BUFFER_PARAM,1.f,400.f,1.f,"Buffer Size");
+        configParam(BUFFER_PARAM,1.f,4000.f,1.f,"Buffer Size");
 		getParamQuantity(BUFFER_PARAM)->snapEnabled = true;
-        configParam(SINES_PARAM,0.f,40.f,1.f,"Number of Sinusoids");
+        configParam(SAMPLE_RATE_PARAM,0.f,400.f,1.f,"Sample rate reduction");
+		getParamQuantity(SAMPLE_RATE_PARAM)->snapEnabled = true;
+		getParamQuantity(PARAM_2)->snapEnabled = true;
+		getParamQuantity(PARAM_3)->snapEnabled = true;
         //initialise params & buffers
         bufferSize = params[BUFFER_PARAM].getValue();
-        numSinusoids = params[SINES_PARAM].getValue();
+        sampleRate = params[SAMPLE_RATE_PARAM].getValue();
         param2 = params[PARAM_2].getValue();
         param3 = params[PARAM_3].getValue();
-        buffer_index = 0;
+        bufferIndex = 0;
+        sampleRateIndex = 0;
         initialiseResources();
     }
 
@@ -60,32 +65,39 @@ struct FourierSynthesis : Module {
 
     void process(const ProcessArgs& args) override {
         // outputs[OUTPUT_LEFT].setVoltage(bufferSize);
-        // outputs[OUTPUT_RIGHT].setVoltage(numSinusoids);
+        // outputs[OUTPUT_RIGHT].setVoltage(sampleRate);
 
         if (paramsModified()){
             //reevaluate params & buffers
             bufferSize = params[BUFFER_PARAM].getValue();
-            numSinusoids = params[SINES_PARAM].getValue();
+            sampleRate = params[SAMPLE_RATE_PARAM].getValue();
             param2 = params[PARAM_2].getValue();
             param3 = params[PARAM_3].getValue();
-            buffer_index = 0;
+            bufferIndex = 0;
+            sampleRateIndex = 0;
             initialiseResources();
         }
 
-        if (buffer_index < bufferSize) {
-            //stream data from the input to the buffer
-            real_in[buffer_index] = static_cast<double>(inputs[INPUT_LEFT].getVoltage());
-            //simultaneously output the data from the previous buffer
-            //divide by bufferSize since the output of FFTW is scaled by the size of the input buffer
-            outputs[OUTPUT_LEFT].setVoltage(real_out[buffer_index] / bufferSize);
-            outputs[OUTPUT_RIGHT].setVoltage(inputs[INPUT_RIGHT].getVoltage());
-            buffer_index++;
+        if (sampleRateIndex < sampleRate) {
+            sampleRateIndex++;
         } else {
-            //make sure you don't miss a sample here
-            buffer_index = 0;
-            fftw_execute(forward_plan);
-            fftw_execute(backward_plan);
-            //process data
+            sampleRateIndex = 0;
+            if (bufferIndex < bufferSize) {
+                //stream data from the input to the buffer
+                real_in[bufferIndex] = static_cast<double>(inputs[INPUT_LEFT].getVoltage());
+                //simultaneously output the data from the previous buffer
+                //divide by bufferSize since the output of FFTW is scaled by the size of the input buffer
+
+                outputs[OUTPUT_LEFT].setVoltage(real_out[bufferIndex] / bufferSize);
+                outputs[OUTPUT_RIGHT].setVoltage(inputs[INPUT_RIGHT].getVoltage());
+                bufferIndex++;
+            } else {
+                //make sure you don't miss a sample here
+                bufferIndex = 0;
+                fftw_execute(forward_plan);
+                fftw_execute(backward_plan);
+                //process data
+            }
         }
 
         // std::cout << "Frequency domain output:" << std::endl;
@@ -93,12 +105,11 @@ struct FourierSynthesis : Module {
         //     std::cout << in[i] << std::endl;
         // }
         // std::cout << paramsModified();
-        // // Need to scale output by N.
     }
 
     bool paramsModified() {
         return params[BUFFER_PARAM].getValue() != bufferSize ||
-               params[SINES_PARAM].getValue() != numSinusoids ||
+               params[SAMPLE_RATE_PARAM].getValue() != sampleRate ||
                params[PARAM_2].getValue() != param2 ||
                params[PARAM_3].getValue() != param3;
     }
@@ -132,12 +143,16 @@ struct FourierSynthesisWidget : ModuleWidget {
         addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
         addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
         addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
+        // addChild(createWidget<ScrewSilver>(Vec(0, 0)));
+        // addChild(createWidget<ScrewSilver>(Vec(box.size.x - RACK_GRID_WIDTH, 0)));
+        // addChild(createWidget<ScrewSilver>(Vec(0, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
+        // addChild(createWidget<ScrewSilver>(Vec(box.size.x - RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
         addInput(createInput<PJ301MPort>(Vec(18,329), module, FourierSynthesis::INPUT_LEFT));
         addInput(createInput<PJ301MPort>(Vec(47,329), module, FourierSynthesis::INPUT_RIGHT));
 
         addParam(createParam<RoundLargeBlackKnob>(Vec(34,197), module, FourierSynthesis::BUFFER_PARAM));
-        addParam(createParam<RoundLargeBlackKnob>(Vec(57,235), module, FourierSynthesis::SINES_PARAM));
+        addParam(createParam<RoundLargeBlackKnob>(Vec(57,235), module, FourierSynthesis::SAMPLE_RATE_PARAM));
         addParam(createParam<RoundLargeBlackKnob>(Vec(135,197), module, FourierSynthesis::PARAM_2));
         addParam(createParam<RoundLargeBlackKnob>(Vec(158,235), module, FourierSynthesis::PARAM_3));
         

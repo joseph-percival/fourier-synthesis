@@ -108,11 +108,11 @@ struct FourierSynthesis : Module {
         // std::cout << paramsModified();
     }
 
-    void crossfadeBuffer() {
-        for (int i = 0; i < bufferSize; i++) {
-            real_out[i] = (real_out[i] * 0.5) + (real_in[i] * 0.5);
-        }
-    }
+    // void crossfadeBuffer() {
+    //     for (int i = 0; i < bufferSize; i++) {
+    //         real_out[i] = (real_out[i] * 0.5) + (real_in[i] * 0.5);
+    //     }
+    // }
 
     bool paramsModified() {
         return params[BUFFER_PARAM].getValue() != bufferSize ||
@@ -133,6 +133,10 @@ struct FourierSynthesis : Module {
         real_in = fftw_alloc_real(bufferSize);
         freq_out = fftw_alloc_complex(bufferSize / 2 + 1);
         real_out = fftw_alloc_real(bufferSize);
+
+        // set real_out array to zero to prevent the module
+        // from outputting undefined array content
+        memset(real_out, 0, bufferSize * sizeof(double));
 
         // generate plans
         forward_plan = fftw_plan_dft_r2c_1d(bufferSize, real_in, freq_out, FFTW_ESTIMATE);

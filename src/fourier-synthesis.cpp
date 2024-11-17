@@ -156,8 +156,13 @@ struct FourierSynthesis : Module {
 using namespace rack;
 
 struct FrequencyDisplay : Widget {
-    const std::vector<double>* freqData = nullptr; // pointer to frequency data
+    FourierSynthesis* module;
+    std::vector<double>* freqData = nullptr; // pointer to frequency data
     int numBins = 0;                               // number of bins in display
+
+    void setNumBins(int bins) {
+        numBins = bins;
+    }
 
     void draw(const DrawArgs& args) override {
         // ensure frequency data is available
@@ -167,6 +172,10 @@ struct FrequencyDisplay : Widget {
         NVGcontext* vg = args.vg;
         float width = box.size.x;
         float height = box.size.y;
+
+        // update number of bins
+        numBins = (*freqData).size();
+        (*freqData).resize(numBins, 0.0f);
 
         // draw background (temporary for positioning)
         nvgBeginPath(vg);
@@ -178,7 +187,7 @@ struct FrequencyDisplay : Widget {
         nvgBeginPath(vg);
         for (int i = 0; i < numBins; i++) {
             float x = (float)i / numBins * width;
-            float barHeight = log((*freqData)[i] * height); // scale frequency magnitude
+            float barHeight = (*freqData)[i] * height; // scale frequency magnitude
             nvgRect(vg, x, height - barHeight, width / numBins, barHeight);
         }
         nvgFillColor(vg, nvgRGB(0, 200, 255));
@@ -188,6 +197,8 @@ struct FrequencyDisplay : Widget {
 
 
 struct FourierSynthesisWidget : ModuleWidget {
+    FrequencyDisplay* display;
+
     FourierSynthesisWidget(FourierSynthesis* module) {
         setModule(module);
         setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/fourier_bg.svg")));
@@ -218,10 +229,22 @@ struct FourierSynthesisWidget : ModuleWidget {
             display->box.pos = Vec(32, 100);
             display->box.size = Vec(160, 10);
             display->freqData = &module->freqMagnitudes;
-            display->numBins = module->bufferSize / 2 + 1;
+            display->setNumBins(module->bufferSize / 2 + 1);
             addChild(display);
         }
     }
+
+    // void step() override {
+    //     // override the step method to ensure the widget's display is updated with the correct buffer size
+    //     if (module) {
+    //         auto* fourierModule = dynamic_cast<FourierSynthesis*>(module);
+    //         if (fourierModule && display) {
+    //             display->setNumBins(fourierModule->bufferSize / 2 + 1);
+    //             std::cout << display->numBins;
+    //         }
+    //     }
+    //     ModuleWidget::step();
+    // }
 };
 
 Model* modelFourierSynthesis = createModel<FourierSynthesis, FourierSynthesisWidget>("fourier-synthesis");

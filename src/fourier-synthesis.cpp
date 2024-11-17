@@ -14,6 +14,7 @@ struct FourierSynthesis : Module {
     double* real_out;
     int bufferIndex;
     int sampleRateIndex;
+    std::vector<double> freqMagnitudes;
 
     enum ParamIds {
         BUFFER_PARAM,
@@ -68,7 +69,7 @@ struct FourierSynthesis : Module {
         // outputs[OUTPUT_RIGHT].setVoltage(sampleRate);
 
         if (paramsModified()){
-            // crossfadeBuffer();
+            crossfadeBuffer();
             //reevaluate params & buffers
             bufferSize = params[BUFFER_PARAM].getValue();
             sampleRate = params[SAMPLE_RATE_PARAM].getValue();
@@ -96,6 +97,11 @@ struct FourierSynthesis : Module {
                 //make sure you don't miss a sample here
                 bufferIndex = 0;
                 fftw_execute(forward_plan);
+                // Compute magnitudes for the frequency domain
+                freqMagnitudes.resize(bufferSize / 2 + 1);
+                for (int i = 0; i < bufferSize / 2 + 1; i++) {
+                    freqMagnitudes[i] = sqrt(freq_out[i][0] * freq_out[i][0] + freq_out[i][1] * freq_out[i][1]);
+                }
                 fftw_execute(backward_plan);
                 //process data
             }
@@ -108,11 +114,11 @@ struct FourierSynthesis : Module {
         // std::cout << paramsModified();
     }
 
-    // void crossfadeBuffer() {
-    //     for (int i = 0; i < bufferSize; i++) {
-    //         real_out[i] = (real_out[i] * 0.5) + (real_in[i] * 0.5);
-    //     }
-    // }
+    void crossfadeBuffer() {
+        for (int i = 0; i < bufferSize; i++) {
+            real_out[i] = (real_out[i] * 0.5) + (real_in[i] * 0.5);
+        }
+    }
 
     bool paramsModified() {
         return params[BUFFER_PARAM].getValue() != bufferSize ||
@@ -145,6 +151,42 @@ struct FourierSynthesis : Module {
 
 };
 
+#include <rack.hpp>
+#include <vector>
+using namespace rack;
+
+struct FrequencyDisplay : Widget {
+    const std::vector<double>* freqData = nullptr; // pointer to frequency data
+    int numBins = 0;                               // number of bins in display
+
+    void draw(const DrawArgs& args) override {
+        // ensure frequency data is available
+        if (!freqData || freqData->empty()) return;
+
+        // get widget size
+        NVGcontext* vg = args.vg;
+        float width = box.size.x;
+        float height = box.size.y;
+
+        // draw background (temporary for positioning)
+        nvgBeginPath(vg);
+        nvgRect(vg, 0, 0, width, height);
+        nvgFillColor(vg, nvgRGB(20, 20, 20));
+        nvgFill(vg);
+
+        // draw frequency spectrum
+        nvgBeginPath(vg);
+        for (int i = 0; i < numBins; i++) {
+            float x = (float)i / numBins * width;
+            float barHeight = log((*freqData)[i] * height); // scale frequency magnitude
+            nvgRect(vg, x, height - barHeight, width / numBins, barHeight);
+        }
+        nvgFillColor(vg, nvgRGB(0, 200, 255));
+        nvgFill(vg);
+    }
+};
+
+
 struct FourierSynthesisWidget : ModuleWidget {
     FourierSynthesisWidget(FourierSynthesis* module) {
         setModule(module);
@@ -169,6 +211,16 @@ struct FourierSynthesisWidget : ModuleWidget {
         
         addOutput(createOutput<PJ301MPort>(Vec(153,329), module, FourierSynthesis::OUTPUT_LEFT));
         addOutput(createOutput<PJ301MPort>(Vec(182,329), module, FourierSynthesis::OUTPUT_RIGHT));
+
+        // frequency display
+        if (module) {
+            auto* display = new FrequencyDisplay();
+            display->box.pos = Vec(32, 100);
+            display->box.size = Vec(160, 10);
+            display->freqData = &module->freqMagnitudes;
+            display->numBins = module->bufferSize / 2 + 1;
+            addChild(display);
+        }
     }
 };
 

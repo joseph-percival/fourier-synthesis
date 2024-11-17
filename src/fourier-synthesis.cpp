@@ -164,6 +164,20 @@ struct FrequencyDisplay : Widget {
         numBins = bins;
     }
 
+    // map values between 0 and 1
+    void scale(std::vector<double>& data) {
+        double min_value = *std::min_element(data.begin(), data.end());
+        double max_value = *std::max_element(data.begin(), data.end());
+
+        // handle division by 0 error
+        if (max_value - min_value == 0) return;
+
+        // normalize each value in the array
+        for (auto& value : data) {
+            value = (value - min_value) / (max_value - min_value);
+        }
+    }
+
     void draw(const DrawArgs& args) override {
         // ensure frequency data is available
         if (!freqData || freqData->empty()) return;
@@ -182,6 +196,9 @@ struct FrequencyDisplay : Widget {
         nvgRect(vg, 0, 0, width, height);
         nvgFillColor(vg, nvgRGB(20, 20, 20));
         nvgFill(vg);
+
+        // normalise data
+        scale(*freqData);
 
         // draw frequency spectrum
         nvgBeginPath(vg);

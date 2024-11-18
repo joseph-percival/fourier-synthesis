@@ -192,10 +192,10 @@ struct FrequencyDisplay : Widget {
         (*freqData).resize(numBins, 0.0f);
 
         // draw background (temporary for positioning)
-        nvgBeginPath(vg);
-        nvgRect(vg, 0, 0, width, height);
-        nvgFillColor(vg, nvgRGB(20, 20, 20));
-        nvgFill(vg);
+        // nvgBeginPath(vg);
+        // nvgRect(vg, 0, 0, width, height);
+        // nvgFillColor(vg, nvgRGB(20, 20, 20));
+        // nvgFill(vg);
 
         // normalise data
         scale(*freqData);
@@ -207,7 +207,10 @@ struct FrequencyDisplay : Widget {
             float barHeight = (*freqData)[i] * height; // scale frequency magnitude
             nvgRect(vg, x, height - barHeight, width / numBins, barHeight);
         }
-        nvgFillColor(vg, nvgRGB(0, 200, 255));
+        // nvgFillColor(vg, nvgRGB(0, 200, 255)); //cyan
+        // nvgFillColor(vg, nvgRGB(0, 0, 0)); //black
+        nvgFillColor(vg, nvgRGB(230, 233, 169)); //LED white
+        // nvgFillColor(vg, nvgRGB(255, 255, 255)); //white
         nvgFill(vg);
     }
 };
@@ -243,25 +246,13 @@ struct FourierSynthesisWidget : ModuleWidget {
         // frequency display
         if (module) {
             auto* display = new FrequencyDisplay();
-            display->box.pos = Vec(32, 100);
-            display->box.size = Vec(160, 10);
+            display->box.pos = Vec(3 * RACK_GRID_WIDTH, 5 * RACK_GRID_WIDTH);
+            display->box.size = Vec(9 * RACK_GRID_WIDTH, 3 * RACK_GRID_WIDTH);
             display->freqData = &module->freqMagnitudes;
             display->setNumBins(module->bufferSize / 2 + 1);
             addChild(display);
         }
     }
-
-    // void step() override {
-    //     // override the step method to ensure the widget's display is updated with the correct buffer size
-    //     if (module) {
-    //         auto* fourierModule = dynamic_cast<FourierSynthesis*>(module);
-    //         if (fourierModule && display) {
-    //             display->setNumBins(fourierModule->bufferSize / 2 + 1);
-    //             std::cout << display->numBins;
-    //         }
-    //     }
-    //     ModuleWidget::step();
-    // }
 };
 
 Model* modelFourierSynthesis = createModel<FourierSynthesis, FourierSynthesisWidget>("fourier-synthesis");

@@ -1,11 +1,11 @@
 #include "fourier-synthesis-plugin.hpp"
-#include <iostream>
 #include <fftw3.h>
+#include <vector>
 
 struct FourierSynthesis : Module {
     int bufferSize;
     int sampleRate;
-    int param2;
+    int waveformType;
     int param3;
     fftw_plan forward_plan;
     fftw_plan backward_plan;
@@ -15,12 +15,12 @@ struct FourierSynthesis : Module {
     int bufferIndex;
     int sampleRateIndex;
     std::vector<double> freqMagnitudes;
+    std::vector<std::vector<double>> wavetables;
 
     enum ParamIds {
         BUFFER_PARAM,
         SAMPLE_RATE_PARAM,
-        PARAM_2,
-        PARAM_3,
+        WAVEFORM_PARAM,
         NUM_PARAMS
     };
 
@@ -54,6 +54,11 @@ struct FourierSynthesis : Module {
         bufferIndex = 0;
         sampleRateIndex = 0;
         initialiseResources();
+        // precompute wavetables
+        wavetables.clear();
+        for (int i = 0; i < bufferSize / 2 + 1; ++i) {
+            wavetables.push_back(generateWaveform("sine", bufferSize, i));
+        }
     }
 
         ~FourierSynthesis() {
@@ -65,15 +70,14 @@ struct FourierSynthesis : Module {
     }
 
     void process(const ProcessArgs& args) override {
-        // outputs[OUTPUT_LEFT].setVoltage(bufferSize);
-        // outputs[OUTPUT_RIGHT].setVoltage(sampleRate);
 
         if (paramsModified()){
             crossfadeBuffer();
+            updateWavetables();
             //reevaluate params & buffers
             bufferSize = params[BUFFER_PARAM].getValue();
             sampleRate = params[SAMPLE_RATE_PARAM].getValue();
-            param2 = params[PARAM_2].getValue();
+            waveformType = params[WAVEFORM_PARAM].getValue();
             param3 = params[PARAM_3].getValue();
             bufferIndex = 0;
             sampleRateIndex = 0;
@@ -85,33 +89,38 @@ struct FourierSynthesis : Module {
         } else {
             sampleRateIndex = 0;
             if (bufferIndex < bufferSize) {
-                //stream data from the input to the buffer
+                // 
+                // stream data from the input to the buffer
                 real_in[bufferIndex] = static_cast<double>(inputs[INPUT_LEFT].getVoltage());
-                //simultaneously output the data from the previous buffer
-                //divide by bufferSize since the output of FFTW is scaled by the size of the input buffer
+                // simultaneously output the data from the previous buffer
+                // divide by bufferSize since the output of FFTW is scaled by the size of the input buffer
 
                 outputs[OUTPUT_LEFT].setVoltage(real_out[bufferIndex] / bufferSize);
                 outputs[OUTPUT_RIGHT].setVoltage(inputs[INPUT_RIGHT].getVoltage());
                 bufferIndex++;
             } else {
-                //make sure you don't miss a sample here
+                // make sure you don't miss a sample here
                 bufferIndex = 0;
                 fftw_execute(forward_plan);
-                // Compute magnitudes for the frequency domain
+                // compute magnitudes for the frequency domain
                 freqMagnitudes.resize(bufferSize / 2 + 1);
                 for (int i = 0; i < bufferSize / 2 + 1; i++) {
                     freqMagnitudes[i] = sqrt(freq_out[i][0] * freq_out[i][0] + freq_out[i][1] * freq_out[i][1]);
                 }
-                fftw_execute(backward_plan);
-                //process data
+
+
+                // fftw_execute(backward_plan);
+                // process data
+                for (int i = 0; i < bufferSize; ++i) {
+                    real_out[i] = 0.0;
+                    for (int j = 0; j < bufferSize / 2 + 1; ++j) {
+                        double magnitude = freqMagnitudes[j];
+                        double phase = atan2(freq_out[j][1], freq_out[j][0]); // compute phase
+                        real_out[i] += magnitude * wavetables[j][i] * cos(phase);
+                    }
+                }
             }
         }
-
-        // std::cout << "Frequency domain output:" << std::endl;
-        // for (int i = 0; i < N; i++) {
-        //     std::cout << in[i] << std::endl;
-        // }
-        // std::cout << paramsModified();
     }
 
     void crossfadeBuffer() {
@@ -123,7 +132,7 @@ struct FourierSynthesis : Module {
     bool paramsModified() {
         return params[BUFFER_PARAM].getValue() != bufferSize ||
                params[SAMPLE_RATE_PARAM].getValue() != sampleRate ||
-               params[PARAM_2].getValue() != param2 ||
+               params[WAVEFORM_PARAM].getValue() != waveformType ||
                params[PARAM_3].getValue() != param3;
     }
 
@@ -149,11 +158,30 @@ struct FourierSynthesis : Module {
         backward_plan = fftw_plan_dft_c2r_1d(bufferSize, freq_out, real_out, FFTW_ESTIMATE);
     }
 
-};
+    std::vector<double> generateWaveform(const std::string& type, int size, int harmonic) {
+        std::vector<double> table(size);
+        for (int i = 0; i < size; ++i) {
+            double phase = 2.0 * M_PI * i * harmonic / size;
+            if (type == "sine")
+                table[i] = sin(phase);
+            else if (type == "sawtooth")
+                table[i] = 2.0 * (phase / (2.0 * M_PI)) - 1.0; // normalized sawtooth
+            else if (type == "square")
+                table[i] = phase < M_PI ? 1.0 : -1.0;
+            // maybe add more types?
+        }
+        return table;
+    }
 
-#include <rack.hpp>
-#include <vector>
-using namespace rack;
+    void updateWavetables() {
+        std::string waveform = (waveformType == 0) ? "sine" : (waveformType == 1) ? "sawtooth" : "square";
+        std::cout << waveform;
+        for (int i = 0; i < bufferSize / 2 + 1; ++i) {
+            wavetables[i] = generateWaveform(waveform, bufferSize, i);
+        }
+    }
+
+};
 
 struct FrequencyDisplay : Widget {
     FourierSynthesis* module;

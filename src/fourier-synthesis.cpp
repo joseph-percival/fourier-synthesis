@@ -17,6 +17,7 @@ struct FourierSynthesis : Module {
     int sampleRateIndex;
     std::vector<double> freqMagnitudes;
     std::vector<std::vector<double>> wavetables;
+    std::vector<double> precomputedCos;
     std::unordered_map<std::string, std::vector<std::vector<double>>> waveformCache;
 
     enum ParamIds {
@@ -90,10 +91,11 @@ struct FourierSynthesis : Module {
         forward_plan = fftw_plan_dft_r2c_1d(bufferSize, real_in, freq_out, FFTW_ESTIMATE);
         // backward_plan = fftw_plan_dft_c2r_1d(bufferSize, freq_out, real_out, FFTW_ESTIMATE);
 
-        wavetables.clear();
-        for (int i = 0; i < bufferSize / 2 + 1; ++i) {
-            wavetables.push_back(generateWaveform(0, bufferSize, i));
-        }
+        precomputedCos.resize(bufferSize / 2 + 1);
+        // wavetables.clear();
+        // for (int i = 0; i < bufferSize / 2 + 1; ++i) {
+        //     wavetables.push_back(generateWaveform(0, bufferSize, i));
+        // }
     }
 
     void process(const ProcessArgs& args) override {
@@ -107,8 +109,8 @@ struct FourierSynthesis : Module {
             bufferIndex = 0;
             sampleRateIndex = 0;
             initialiseResources();
+            precomputeCos();
             precomputeWaveforms();
-            // updateWavetables();
         }
 
         if (sampleRateIndex < sampleRate) {
@@ -152,12 +154,20 @@ struct FourierSynthesis : Module {
 
     void computeOutput() {
         const auto& wavetables = waveformCache[getWaveformKey()];
+    
+        #pragma omp parallel for
         for (int i = 0; i < bufferSize; ++i) {
-            real_out[i] = 0.0;
+            double sum = 0.0;
             for (int j = 0; j < bufferSize / 2 + 1; ++j) {
-                double phase = std::atan2(freq_out[j][1], freq_out[j][0]);
-                real_out[i] += freqMagnitudes[j] * wavetables[j][i] * std::cos(phase);
+                sum += freqMagnitudes[j] * wavetables[j][i] * precomputedCos[j];
             }
+            real_out[i] = sum;
+        }
+    }
+
+    void precomputeCos() {
+        for (int j = 0; j < bufferSize / 2 + 1; ++j) {
+            precomputedCos[j] = std::cos(std::atan2(freq_out[j][1], freq_out[j][0]));
         }
     }
 

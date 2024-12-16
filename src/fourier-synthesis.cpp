@@ -1,6 +1,7 @@
 #include "fourier-synthesis-plugin.hpp"
 #include <fftw3.h>
 #include <vector>
+#include <iostream>
 
 struct FourierSynthesis : Module {
     int bufferSize;
@@ -21,6 +22,7 @@ struct FourierSynthesis : Module {
         BUFFER_PARAM,
         SAMPLE_RATE_PARAM,
         WAVEFORM_PARAM,
+        PARAM_3,
         NUM_PARAMS
     };
 
@@ -44,21 +46,18 @@ struct FourierSynthesis : Module {
 		getParamQuantity(BUFFER_PARAM)->snapEnabled = true;
         configParam(SAMPLE_RATE_PARAM,0.f,400.f,1.f,"Sample rate reduction");
 		getParamQuantity(SAMPLE_RATE_PARAM)->snapEnabled = true;
-		getParamQuantity(PARAM_2)->snapEnabled = true;
+        configParam(WAVEFORM_PARAM,0.f,2.f,1.f,"Waveform Type");
+		getParamQuantity(WAVEFORM_PARAM)->snapEnabled = true;
 		getParamQuantity(PARAM_3)->snapEnabled = true;
         //initialise params & buffers
         bufferSize = params[BUFFER_PARAM].getValue();
         sampleRate = params[SAMPLE_RATE_PARAM].getValue();
-        param2 = params[PARAM_2].getValue();
+        waveformType = params[WAVEFORM_PARAM].getValue();
         param3 = params[PARAM_3].getValue();
         bufferIndex = 0;
         sampleRateIndex = 0;
         initialiseResources();
         // precompute wavetables
-        wavetables.clear();
-        for (int i = 0; i < bufferSize / 2 + 1; ++i) {
-            wavetables.push_back(generateWaveform("sine", bufferSize, i));
-        }
     }
 
         ~FourierSynthesis() {
@@ -73,7 +72,6 @@ struct FourierSynthesis : Module {
 
         if (paramsModified()){
             crossfadeBuffer();
-            updateWavetables();
             //reevaluate params & buffers
             bufferSize = params[BUFFER_PARAM].getValue();
             sampleRate = params[SAMPLE_RATE_PARAM].getValue();
@@ -82,6 +80,7 @@ struct FourierSynthesis : Module {
             bufferIndex = 0;
             sampleRateIndex = 0;
             initialiseResources();
+            updateWavetables();
         }
 
         if (sampleRateIndex < sampleRate) {
@@ -156,6 +155,11 @@ struct FourierSynthesis : Module {
         // generate plans
         forward_plan = fftw_plan_dft_r2c_1d(bufferSize, real_in, freq_out, FFTW_ESTIMATE);
         backward_plan = fftw_plan_dft_c2r_1d(bufferSize, freq_out, real_out, FFTW_ESTIMATE);
+
+        wavetables.clear();
+        for (int i = 0; i < bufferSize / 2 + 1; ++i) {
+            wavetables.push_back(generateWaveform("sine", bufferSize, i));
+        }
     }
 
     std::vector<double> generateWaveform(const std::string& type, int size, int harmonic) {
@@ -175,7 +179,7 @@ struct FourierSynthesis : Module {
 
     void updateWavetables() {
         std::string waveform = (waveformType == 0) ? "sine" : (waveformType == 1) ? "sawtooth" : "square";
-        std::cout << waveform;
+        std::cout << waveform << std::endl;
         for (int i = 0; i < bufferSize / 2 + 1; ++i) {
             wavetables[i] = generateWaveform(waveform, bufferSize, i);
         }
@@ -265,7 +269,7 @@ struct FourierSynthesisWidget : ModuleWidget {
 
         addParam(createParam<RoundLargeBlackKnob>(Vec(34,197), module, FourierSynthesis::BUFFER_PARAM));
         addParam(createParam<RoundLargeBlackKnob>(Vec(57,235), module, FourierSynthesis::SAMPLE_RATE_PARAM));
-        addParam(createParam<RoundLargeBlackKnob>(Vec(135,197), module, FourierSynthesis::PARAM_2));
+        addParam(createParam<RoundLargeBlackKnob>(Vec(135,197), module, FourierSynthesis::WAVEFORM_PARAM));
         addParam(createParam<RoundLargeBlackKnob>(Vec(158,235), module, FourierSynthesis::PARAM_3));
         
         addOutput(createOutput<PJ301MPort>(Vec(153,329), module, FourierSynthesis::OUTPUT_LEFT));

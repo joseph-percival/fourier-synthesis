@@ -9,7 +9,7 @@ struct FourierSynthesis : Module {
     int waveformType;
     int param3;
     fftw_plan forward_plan;
-    fftw_plan backward_plan;
+    // fftw_plan backward_plan;
     double* real_in;
     fftw_complex* freq_out;
     double* real_out;
@@ -17,6 +17,7 @@ struct FourierSynthesis : Module {
     int sampleRateIndex;
     std::vector<double> freqMagnitudes;
     std::vector<std::vector<double>> wavetables;
+    std::unordered_map<std::string, std::vector<std::vector<double>>> waveformCache;
 
     enum ParamIds {
         BUFFER_PARAM,
@@ -65,13 +66,39 @@ struct FourierSynthesis : Module {
         if (real_out) fftw_free(real_out);
         if (freq_out) fftw_free(freq_out);
         if (forward_plan) fftw_destroy_plan(forward_plan);
-        if (backward_plan) fftw_destroy_plan(backward_plan);
+        // if (backward_plan) fftw_destroy_plan(backward_plan);
+    }
+
+    void initialiseResources() {
+        // free resources
+        if (real_in) fftw_free(real_in);
+        if (freq_out) fftw_free(freq_out);
+        if (real_out) fftw_free(real_out);
+        if (forward_plan) fftw_destroy_plan(forward_plan);
+        // if (backward_plan) fftw_destroy_plan(backward_plan);
+
+        // allocate buffers
+        real_in = fftw_alloc_real(bufferSize);
+        freq_out = fftw_alloc_complex(bufferSize / 2 + 1);
+        real_out = fftw_alloc_real(bufferSize);
+
+        // set real_out array to zero to prevent the module
+        // from outputting undefined array content
+        memset(real_out, 0, bufferSize * sizeof(double));
+
+        // generate plans
+        forward_plan = fftw_plan_dft_r2c_1d(bufferSize, real_in, freq_out, FFTW_ESTIMATE);
+        // backward_plan = fftw_plan_dft_c2r_1d(bufferSize, freq_out, real_out, FFTW_ESTIMATE);
+
+        wavetables.clear();
+        for (int i = 0; i < bufferSize / 2 + 1; ++i) {
+            wavetables.push_back(generateWaveform(0, bufferSize, i));
+        }
     }
 
     void process(const ProcessArgs& args) override {
 
         if (paramsModified()){
-            crossfadeBuffer();
             //reevaluate params & buffers
             bufferSize = params[BUFFER_PARAM].getValue();
             sampleRate = params[SAMPLE_RATE_PARAM].getValue();
@@ -80,7 +107,8 @@ struct FourierSynthesis : Module {
             bufferIndex = 0;
             sampleRateIndex = 0;
             initialiseResources();
-            updateWavetables();
+            precomputeWaveforms();
+            // updateWavetables();
         }
 
         if (sampleRateIndex < sampleRate) {
@@ -110,21 +138,8 @@ struct FourierSynthesis : Module {
 
                 // fftw_execute(backward_plan);
                 // process data
-                for (int i = 0; i < bufferSize; ++i) {
-                    real_out[i] = 0.0;
-                    for (int j = 0; j < bufferSize / 2 + 1; ++j) {
-                        double magnitude = freqMagnitudes[j];
-                        double phase = atan2(freq_out[j][1], freq_out[j][0]); // compute phase
-                        real_out[i] += magnitude * wavetables[j][i] * cos(phase);
-                    }
-                }
+                computeOutput();
             }
-        }
-    }
-
-    void crossfadeBuffer() {
-        for (int i = 0; i < bufferSize; i++) {
-            real_out[i] = (real_out[i] * 0.5) + (real_in[i] * 0.5);
         }
     }
 
@@ -135,56 +150,47 @@ struct FourierSynthesis : Module {
                params[PARAM_3].getValue() != param3;
     }
 
-    void initialiseResources() {
-        // free resources
-        if (real_in) fftw_free(real_in);
-        if (freq_out) fftw_free(freq_out);
-        if (real_out) fftw_free(real_out);
-        if (forward_plan) fftw_destroy_plan(forward_plan);
-        if (backward_plan) fftw_destroy_plan(backward_plan);
-
-        // allocate buffers
-        real_in = fftw_alloc_real(bufferSize);
-        freq_out = fftw_alloc_complex(bufferSize / 2 + 1);
-        real_out = fftw_alloc_real(bufferSize);
-
-        // set real_out array to zero to prevent the module
-        // from outputting undefined array content
-        memset(real_out, 0, bufferSize * sizeof(double));
-
-        // generate plans
-        forward_plan = fftw_plan_dft_r2c_1d(bufferSize, real_in, freq_out, FFTW_ESTIMATE);
-        backward_plan = fftw_plan_dft_c2r_1d(bufferSize, freq_out, real_out, FFTW_ESTIMATE);
-
-        wavetables.clear();
-        for (int i = 0; i < bufferSize / 2 + 1; ++i) {
-            wavetables.push_back(generateWaveform("sine", bufferSize, i));
+    void computeOutput() {
+        const auto& wavetables = waveformCache[getWaveformKey()];
+        for (int i = 0; i < bufferSize; ++i) {
+            real_out[i] = 0.0;
+            for (int j = 0; j < bufferSize / 2 + 1; ++j) {
+                double phase = std::atan2(freq_out[j][1], freq_out[j][0]);
+                real_out[i] += freqMagnitudes[j] * wavetables[j][i] * std::cos(phase);
+            }
         }
     }
 
-    std::vector<double> generateWaveform(const std::string& type, int size, int harmonic) {
+    void precomputeWaveforms() {
+        waveformCache.clear();
+        for (int type = 0; type <= 2; ++type) {
+            std::string key = getWaveformKey(type);
+            waveformCache[key].resize(bufferSize / 2 + 1);
+            for (int harmonic = 0; harmonic <= bufferSize / 2; ++harmonic) {
+                waveformCache[key][harmonic] = generateWaveform(type, bufferSize, harmonic);
+            }
+        }
+    }
+
+    std::string getWaveformKey(int type = -1) const {
+        if (type == -1) type = waveformType;
+        return std::to_string(type) + "_" + std::to_string(bufferSize);
+    }
+
+    std::vector<double> generateWaveform(const int type, int size, int harmonic) {
         std::vector<double> table(size);
         for (int i = 0; i < size; ++i) {
             double phase = 2.0 * M_PI * i * harmonic / size;
-            if (type == "sine")
+            if (type == 0) // sine
                 table[i] = sin(phase);
-            else if (type == "sawtooth")
+            else if (type == 1) // sawtooth
                 table[i] = 2.0 * (phase / (2.0 * M_PI)) - 1.0; // normalized sawtooth
-            else if (type == "square")
+            else if (type == 2) // square
                 table[i] = phase < M_PI ? 1.0 : -1.0;
             // maybe add more types?
         }
         return table;
     }
-
-    void updateWavetables() {
-        std::string waveform = (waveformType == 0) ? "sine" : (waveformType == 1) ? "sawtooth" : "square";
-        std::cout << waveform << std::endl;
-        for (int i = 0; i < bufferSize / 2 + 1; ++i) {
-            wavetables[i] = generateWaveform(waveform, bufferSize, i);
-        }
-    }
-
 };
 
 struct FrequencyDisplay : Widget {

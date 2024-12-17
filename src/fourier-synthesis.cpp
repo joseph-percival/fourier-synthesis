@@ -131,13 +131,13 @@ struct FourierSynthesis : Module {
                 // make sure you don't miss a sample here
                 bufferIndex = 0;
                 fftw_execute(forward_plan);
+                // modify frequency domain with custom waveforms based on chosen wavetable
+                applyCustomWaveform(waveformType, bufferSize, freq_out);
                 // compute magnitudes for the frequency domain (display)
                 freqMagnitudes.resize(bufferSize / 2 + 1);
                 for (int i = 0; i < bufferSize / 2 + 1; i++) {
                     freqMagnitudes[i] = sqrt(freq_out[i][0] * freq_out[i][0] + freq_out[i][1] * freq_out[i][1]);
                 }
-                // modify frequency domain with custom waveforms based on chosen wavetable
-                applyCustomWaveform(waveformType, bufferSize, freq_out);
 
                 fftw_execute(backward_plan);
             }
@@ -168,7 +168,7 @@ struct FourierSynthesis : Module {
             if (harmonic % 2 == 1) { // Only odd harmonics
                 freq_out[harmonic][0] = magnitude;
                 freq_out[harmonic][1] = 0.0;
-            } else {
+            } else if (harmonic != 0){
                 freq_out[harmonic][0] = 0.0;
                 freq_out[harmonic][1] = 0.0;
             }

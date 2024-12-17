@@ -9,7 +9,7 @@ struct FourierSynthesis : Module {
     int waveformType;
     int param3;
     fftw_plan forward_plan;
-    // fftw_plan backward_plan;
+    fftw_plan backward_plan;
     double* real_in;
     fftw_complex* freq_out;
     double* real_out;
@@ -67,7 +67,7 @@ struct FourierSynthesis : Module {
         if (real_out) fftw_free(real_out);
         if (freq_out) fftw_free(freq_out);
         if (forward_plan) fftw_destroy_plan(forward_plan);
-        // if (backward_plan) fftw_destroy_plan(backward_plan);
+        if (backward_plan) fftw_destroy_plan(backward_plan);
     }
 
     void initialiseResources() {
@@ -76,7 +76,7 @@ struct FourierSynthesis : Module {
         if (freq_out) fftw_free(freq_out);
         if (real_out) fftw_free(real_out);
         if (forward_plan) fftw_destroy_plan(forward_plan);
-        // if (backward_plan) fftw_destroy_plan(backward_plan);
+        if (backward_plan) fftw_destroy_plan(backward_plan);
 
         // allocate buffers
         real_in = fftw_alloc_real(bufferSize);
@@ -89,7 +89,7 @@ struct FourierSynthesis : Module {
 
         // generate plans
         forward_plan = fftw_plan_dft_r2c_1d(bufferSize, real_in, freq_out, FFTW_ESTIMATE);
-        // backward_plan = fftw_plan_dft_c2r_1d(bufferSize, freq_out, real_out, FFTW_ESTIMATE);
+        backward_plan = fftw_plan_dft_c2r_1d(bufferSize, freq_out, real_out, FFTW_ESTIMATE);
 
         precomputedCos.resize(bufferSize / 2 + 1);
         // wavetables.clear();
@@ -131,16 +131,15 @@ struct FourierSynthesis : Module {
                 // make sure you don't miss a sample here
                 bufferIndex = 0;
                 fftw_execute(forward_plan);
-                // compute magnitudes for the frequency domain
+                // compute magnitudes for the frequency domain (display)
                 freqMagnitudes.resize(bufferSize / 2 + 1);
                 for (int i = 0; i < bufferSize / 2 + 1; i++) {
                     freqMagnitudes[i] = sqrt(freq_out[i][0] * freq_out[i][0] + freq_out[i][1] * freq_out[i][1]);
                 }
+                // modify frequency domain with custom waveforms based on chosen wavetable
+                applyCustomWaveform(waveformType, bufferSize, freq_out);
 
-
-                // fftw_execute(backward_plan);
-                // process data
-                computeOutput();
+                fftw_execute(backward_plan);
             }
         }
     }
@@ -151,6 +150,31 @@ struct FourierSynthesis : Module {
                params[WAVEFORM_PARAM].getValue() != waveformType ||
                params[PARAM_3].getValue() != param3;
     }
+
+    void applyCustomWaveform(int waveformType, int bufferSize, fftw_complex* freq_out) {
+    for (int harmonic = 0; harmonic < bufferSize / 2 + 1; harmonic++) {
+        double magnitude = sqrt(freq_out[harmonic][0] * freq_out[harmonic][0] +
+                                freq_out[harmonic][1] * freq_out[harmonic][1]);
+        double phase = atan2(freq_out[harmonic][1], freq_out[harmonic][0]);
+
+        // Modify the magnitude and/or phase based on the waveform type
+        if (waveformType == 0) { // Sine (leave as-is)
+            freq_out[harmonic][0] = magnitude * cos(phase);
+            freq_out[harmonic][1] = magnitude * sin(phase);
+        } else if (waveformType == 1) { // Sawtooth
+            freq_out[harmonic][0] = magnitude * (2.0 * harmonic / bufferSize - 1.0);
+            freq_out[harmonic][1] = 0.0; // Sawtooth may not include imaginary components
+        } else if (waveformType == 2) { // Square
+            if (harmonic % 2 == 1) { // Only odd harmonics
+                freq_out[harmonic][0] = magnitude;
+                freq_out[harmonic][1] = 0.0;
+            } else {
+                freq_out[harmonic][0] = 0.0;
+                freq_out[harmonic][1] = 0.0;
+            }
+        }
+    }
+}
 
     void computeOutput() {
         const auto& wavetables = waveformCache[getWaveformKey()];

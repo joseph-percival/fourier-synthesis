@@ -152,29 +152,44 @@ struct FourierSynthesis : Module {
     }
 
     void applyCustomWaveform(int waveformType, int bufferSize, fftw_complex* freq_out) {
-    for (int harmonic = 0; harmonic < bufferSize / 2 + 1; harmonic++) {
-        double magnitude = sqrt(freq_out[harmonic][0] * freq_out[harmonic][0] +
-                                freq_out[harmonic][1] * freq_out[harmonic][1]);
-        double phase = atan2(freq_out[harmonic][1], freq_out[harmonic][0]);
+        fftw_complex* temp_freq_out = (fftw_complex*) fftw_malloc((bufferSize / 2 + 1) * sizeof(fftw_complex));
+        memset(temp_freq_out, 0, (bufferSize / 2 + 1) * sizeof(fftw_complex));
 
-        // modify the magnitude and/or phase based on the waveform type
-        if (waveformType == 0) { // sine wave: keep the original data unchanged
-            // leave magnitude and phase as-is
-        } else if (waveformType == 1) { // sawtooth wave
-            // linearly scale the magnitude for harmonics
-            magnitude *= (2.0 * harmonic / bufferSize - 1.0);
-        } else if (waveformType == 2) { // square wave
-            if (harmonic % 2 == 0) { // only odd harmonics
-                magnitude = magnitude; // keep original magnitude
-            } else {
-                magnitude = 0.0;
+        for (int bin = 1; bin < bufferSize / 2 + 1; ++bin) { // start from bin 1 (bin 0 is DC)
+            // extract the magnitude and phase of the current bin
+            double magnitude = sqrt(freq_out[bin][0] * freq_out[bin][0] +
+                                        freq_out[bin][1] * freq_out[bin][1]);
+            double phase = atan2(freq_out[bin][1], freq_out[bin][0]);
+
+            // generate harmonics based on the waveform type
+            for (int harmonic = 1; bin * harmonic < bufferSize / 2 + 1; ++harmonic) {
+                int targetBin = bin * harmonic;
+                double harmonicMagnitude = magnitude;
+                if (waveformType == 0) { // sine
+                    // waveform remains unchanged
+                } else if (waveformType == 1) { // sawtooth
+                    harmonicMagnitude /= harmonic;
+                } else if (waveformType == 2) { // square
+                    if (harmonic % 2 == 0) continue;
+                    harmonicMagnitude /= harmonic;
+                }
+
+                // accumulate into the target bin in temp array
+                temp_freq_out[targetBin][0] += harmonicMagnitude * cos(phase); // real part
+                temp_freq_out[targetBin][1] += harmonicMagnitude * sin(phase); // imaginary part
             }
         }
-        // align phases of harmonics
-        freq_out[harmonic][0] = magnitude * cos(phase); // real part
-        freq_out[harmonic][1] = magnitude * sin(phase); // imaginary part
+
+        // copy the modified bins back into freq_out
+        memcpy(freq_out, temp_freq_out, (bufferSize / 2 + 1) * sizeof(fftw_complex));
+
+        // zero the DC component
+        freq_out[0][0] = 0;
+        freq_out[0][1] = 0;
+
+        fftw_free(temp_freq_out);
     }
-}
+
 
     void computeOutput() {
         const auto& wavetables = waveformCache[getWaveformKey()];

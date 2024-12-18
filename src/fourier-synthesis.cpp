@@ -157,22 +157,22 @@ struct FourierSynthesis : Module {
                                 freq_out[harmonic][1] * freq_out[harmonic][1]);
         double phase = atan2(freq_out[harmonic][1], freq_out[harmonic][0]);
 
-        // Modify the magnitude and/or phase based on the waveform type
-        if (waveformType == 0) { // Sine (leave as-is)
-            freq_out[harmonic][0] = magnitude * cos(phase);
-            freq_out[harmonic][1] = magnitude * sin(phase);
-        } else if (waveformType == 1) { // Sawtooth
-            freq_out[harmonic][0] = magnitude * (2.0 * harmonic / bufferSize - 1.0);
-            freq_out[harmonic][1] = 0.0; // Sawtooth may not include imaginary components
-        } else if (waveformType == 2) { // Square
-            if (harmonic % 2 == 1) { // Only odd harmonics
-                freq_out[harmonic][0] = magnitude;
-                freq_out[harmonic][1] = 0.0;
-            } else if (harmonic != 0){
-                freq_out[harmonic][0] = 0.0;
-                freq_out[harmonic][1] = 0.0;
+        // modify the magnitude and/or phase based on the waveform type
+        if (waveformType == 0) { // sine wave: keep the original data unchanged
+            // leave magnitude and phase as-is
+        } else if (waveformType == 1) { // sawtooth wave
+            // linearly scale the magnitude for harmonics
+            magnitude *= (2.0 * harmonic / bufferSize - 1.0);
+        } else if (waveformType == 2) { // square wave
+            if (harmonic % 2 == 0) { // only odd harmonics
+                magnitude = magnitude; // keep original magnitude
+            } else {
+                magnitude = 0.0;
             }
         }
+        // align phases of harmonics
+        freq_out[harmonic][0] = magnitude * cos(phase); // real part
+        freq_out[harmonic][1] = magnitude * sin(phase); // imaginary part
     }
 }
 

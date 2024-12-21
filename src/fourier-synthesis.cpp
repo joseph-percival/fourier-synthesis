@@ -7,7 +7,7 @@ struct FourierSynthesis : Module {
     int bufferSize;
     int sampleRate;
     int waveformType;
-    int param3;
+    double numHarmonics;
     fftw_plan forward_plan;
     fftw_plan backward_plan;
     double* real_in;
@@ -24,7 +24,7 @@ struct FourierSynthesis : Module {
         BUFFER_PARAM,
         SAMPLE_RATE_PARAM,
         WAVEFORM_PARAM,
-        PARAM_3,
+        HARMONICS_PARAM,
         NUM_PARAMS
     };
 
@@ -44,18 +44,19 @@ struct FourierSynthesis : Module {
 
     FourierSynthesis() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
-        configParam(BUFFER_PARAM,1.f,4000.f,1.f,"Buffer Size");
+        configParam(BUFFER_PARAM,1.f,10000.f,1.f,"Buffer Size");
 		getParamQuantity(BUFFER_PARAM)->snapEnabled = true;
         configParam(SAMPLE_RATE_PARAM,0.f,400.f,1.f,"Sample rate reduction");
 		getParamQuantity(SAMPLE_RATE_PARAM)->snapEnabled = true;
         configParam(WAVEFORM_PARAM,0.f,2.f,1.f,"Waveform Type");
 		getParamQuantity(WAVEFORM_PARAM)->snapEnabled = true;
-		getParamQuantity(PARAM_3)->snapEnabled = true;
+        configParam(HARMONICS_PARAM,0.f,50.f,1.f,"Number of Harmonics");
+		getParamQuantity(HARMONICS_PARAM)->snapEnabled = true;
         //initialise params & buffers
         bufferSize = params[BUFFER_PARAM].getValue();
         sampleRate = params[SAMPLE_RATE_PARAM].getValue();
         waveformType = params[WAVEFORM_PARAM].getValue();
-        param3 = params[PARAM_3].getValue();
+        numHarmonics = params[HARMONICS_PARAM].getValue();
         bufferIndex = 0;
         sampleRateIndex = 0;
         initialiseResources();
@@ -105,7 +106,7 @@ struct FourierSynthesis : Module {
             bufferSize = params[BUFFER_PARAM].getValue();
             sampleRate = params[SAMPLE_RATE_PARAM].getValue();
             waveformType = params[WAVEFORM_PARAM].getValue();
-            param3 = params[PARAM_3].getValue();
+            numHarmonics = params[HARMONICS_PARAM].getValue();
             bufferIndex = 0;
             sampleRateIndex = 0;
             initialiseResources();
@@ -124,20 +125,23 @@ struct FourierSynthesis : Module {
                 // simultaneously output the data from the previous buffer
                 // divide by bufferSize since the output of FFTW is scaled by the size of the input buffer
 
-                outputs[OUTPUT_LEFT].setVoltage(real_out[bufferIndex] / bufferSize);
+                // outputs[OUTPUT_LEFT].setVoltage(real_out[bufferIndex] / bufferSize);
+                outputs[OUTPUT_LEFT].setVoltage(real_out[bufferIndex]);
                 outputs[OUTPUT_RIGHT].setVoltage(inputs[INPUT_RIGHT].getVoltage());
                 bufferIndex++;
             } else {
                 // make sure you don't miss a sample here
                 bufferIndex = 0;
                 fftw_execute(forward_plan);
-                // modify frequency domain with custom waveforms based on chosen wavetable
+
                 applyCustomWaveform(waveformType, bufferSize, freq_out);
+                // modify frequency domain with custom waveforms based on chosen wavetable
                 // compute magnitudes for the frequency domain (display)
                 freqMagnitudes.resize(bufferSize / 2 + 1);
                 for (int i = 0; i < bufferSize / 2 + 1; i++) {
                     freqMagnitudes[i] = sqrt(freq_out[i][0] * freq_out[i][0] + freq_out[i][1] * freq_out[i][1]);
                 }
+                // applyCustomWaveform(waveformType, bufferSize, freq_out);
 
                 fftw_execute(backward_plan);
             }
@@ -148,25 +152,35 @@ struct FourierSynthesis : Module {
         return params[BUFFER_PARAM].getValue() != bufferSize ||
                params[SAMPLE_RATE_PARAM].getValue() != sampleRate ||
                params[WAVEFORM_PARAM].getValue() != waveformType ||
-               params[PARAM_3].getValue() != param3;
+               params[HARMONICS_PARAM].getValue() != numHarmonics;
     }
 
     void applyCustomWaveform(int waveformType, int bufferSize, fftw_complex* freq_out) {
         fftw_complex* temp_freq_out = (fftw_complex*) fftw_malloc((bufferSize / 2 + 1) * sizeof(fftw_complex));
-        memset(temp_freq_out, 0, (bufferSize / 2 + 1) * sizeof(fftw_complex));
+        // memset(temp_freq_out, 0, (bufferSize / 2 + 1) * sizeof(fftw_complex));
+        // memset(freq_out, 0, (bufferSize / 2 + 1) * sizeof(fftw_complex));
+        // freq_out[1][0] = 100;
+        // freq_out[1][1] = 50;
+        memcpy(temp_freq_out, freq_out, (bufferSize / 2 + 1) * sizeof(fftw_complex));
+        // freq_out[1][1] = 0;
+        // std::cout << freq_out[0][0] << ":" << freq_out[0][1] << std::endl;
 
-        for (int bin = 1; bin < bufferSize / 2 + 1; ++bin) { // start from bin 1 (bin 0 is DC)
+        for (int bin = 1; bin < bufferSize / 2 + 1; ++bin) {
+        // for (int bin = 1; bin < 2; ++bin) {
             // extract the magnitude and phase of the current bin
             double magnitude = sqrt(freq_out[bin][0] * freq_out[bin][0] +
                                         freq_out[bin][1] * freq_out[bin][1]);
             double phase = atan2(freq_out[bin][1], freq_out[bin][0]);
 
             // generate harmonics based on the waveform type
-            for (int harmonic = 1; bin * harmonic < bufferSize / 2 + 1; ++harmonic) {
+            for (int harmonic = 2; (bin * harmonic < bufferSize / 2 + 1) && (harmonic <= numHarmonics); ++harmonic) {
+            // for (int harmonic = 2; (bin * harmonic < bufferSize / 2 + 1); ++harmonic) {
                 int targetBin = bin * harmonic;
                 double harmonicMagnitude = magnitude;
+
                 if (waveformType == 0) { // sine
-                    // waveform remains unchanged
+                    // waveform has no harmonics
+                    continue;
                 } else if (waveformType == 1) { // sawtooth
                     harmonicMagnitude /= harmonic;
                 } else if (waveformType == 2) { // square
@@ -174,18 +188,25 @@ struct FourierSynthesis : Module {
                     harmonicMagnitude /= harmonic;
                 }
 
-                // accumulate into the target bin in temp array
-                temp_freq_out[targetBin][0] += harmonicMagnitude * cos(phase); // real part
-                temp_freq_out[targetBin][1] += harmonicMagnitude * sin(phase); // imaginary part
+                double r = harmonicMagnitude * cos(phase * harmonic);
+                double i = harmonicMagnitude * sin(phase * harmonic);
+
+                std::cout << phase << ":" << atan2(temp_freq_out[targetBin][1], temp_freq_out[targetBin][0]) << std::endl;
+
+
+                // accumulate into the target bin
+                temp_freq_out[targetBin][0] += r; // real part
+                temp_freq_out[targetBin][1] += i; // imaginary part
+                // std::cout << harmonic << ":" << magnitude << ":" << phase << std::endl;
+                // std::cout << harmonic << ":" << magnitude << ":" << phase << std::endl;
             }
         }
-
+        for (int i=0; i < bufferSize / 2 + 1; i++) {
+            temp_freq_out[i][0] /= bufferSize;
+            temp_freq_out[i][1] /= bufferSize;
+        }
         // copy the modified bins back into freq_out
         memcpy(freq_out, temp_freq_out, (bufferSize / 2 + 1) * sizeof(fftw_complex));
-
-        // zero the DC component
-        freq_out[0][0] = 0;
-        freq_out[0][1] = 0;
 
         fftw_free(temp_freq_out);
     }
@@ -325,7 +346,7 @@ struct FourierSynthesisWidget : ModuleWidget {
         addParam(createParam<RoundLargeBlackKnob>(Vec(34,197), module, FourierSynthesis::BUFFER_PARAM));
         addParam(createParam<RoundLargeBlackKnob>(Vec(57,235), module, FourierSynthesis::SAMPLE_RATE_PARAM));
         addParam(createParam<RoundLargeBlackKnob>(Vec(135,197), module, FourierSynthesis::WAVEFORM_PARAM));
-        addParam(createParam<RoundLargeBlackKnob>(Vec(158,235), module, FourierSynthesis::PARAM_3));
+        addParam(createParam<RoundLargeBlackKnob>(Vec(158,235), module, FourierSynthesis::HARMONICS_PARAM));
         
         addOutput(createOutput<PJ301MPort>(Vec(153,329), module, FourierSynthesis::OUTPUT_LEFT));
         addOutput(createOutput<PJ301MPort>(Vec(182,329), module, FourierSynthesis::OUTPUT_RIGHT));

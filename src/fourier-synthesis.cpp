@@ -6,7 +6,7 @@
 struct FourierSynthesis : Module {
     int bufferSize;
     int sampleRate;
-    int waveformType;
+    double waveformType;
     int numHarmonics;
     fftw_plan forward_plan;
     fftw_plan backward_plan;
@@ -30,6 +30,7 @@ struct FourierSynthesis : Module {
         INPUT_RIGHT,
         NUM_INPUTS
     };
+
     enum OutputIds {
         OUTPUT_LEFT,
         OUTPUT_RIGHT,
@@ -46,7 +47,7 @@ struct FourierSynthesis : Module {
         configParam(SAMPLE_RATE_PARAM,0.f,400.f,1.f,"Sample rate reduction");
 		getParamQuantity(SAMPLE_RATE_PARAM)->snapEnabled = true;
         configParam(WAVEFORM_PARAM,0.f,2.f,1.f,"Waveform Type");
-		getParamQuantity(WAVEFORM_PARAM)->snapEnabled = true;
+		// getParamQuantity(WAVEFORM_PARAM)->snapEnabled = true;
         configParam(HARMONICS_PARAM,1.f,100.f,10.f,"Number of Harmonics");
 		getParamQuantity(HARMONICS_PARAM)->snapEnabled = true;
         //initialise params & buffers
@@ -92,14 +93,15 @@ struct FourierSynthesis : Module {
     void process(const ProcessArgs& args) override {
 
         if (paramsModified()){
-            //reevaluate params & buffers
+            // reevaluate regular params
             sampleRate = params[SAMPLE_RATE_PARAM].getValue();
             waveformType = params[WAVEFORM_PARAM].getValue();
             numHarmonics = params[HARMONICS_PARAM].getValue();
             sampleRateIndex = 0;
         }
+
         if (fftParamsModified()){
-            //reevaluate fft params, recalculating plans
+            // reevaluate fft params, recalculating plans
             bufferSize = params[BUFFER_PARAM].getValue();
             bufferIndex = 0;
             initialiseResources();
@@ -147,7 +149,7 @@ struct FourierSynthesis : Module {
         return params[BUFFER_PARAM].getValue() != bufferSize;
     }
 
-    void applyCustomWaveform(int waveformType, int bufferSize, fftw_complex* freq_out) {
+    void applyCustomWaveform(double waveformType, int bufferSize, fftw_complex* freq_out) {
         fftw_complex* temp_freq_out = (fftw_complex*) fftw_malloc((bufferSize / 2 + 1) * sizeof(fftw_complex));
         memset(temp_freq_out, 0, (bufferSize / 2 + 1) * sizeof(fftw_complex));
         // uncomment for testing
@@ -168,27 +170,35 @@ struct FourierSynthesis : Module {
             for (int harmonic = 1; (bin * harmonic < bufferSize / 2 + 1) && (harmonic <= numHarmonics); ++harmonic) {
                 int targetBin = bin * harmonic;
                 double harmonicMagnitude = magnitude;
-
-                if (waveformType == 0) { // sine
-                    // waveform has no harmonics
-                    if (harmonic != 1) continue;
-                } else if (waveformType == 1) { // sawtooth
-                    harmonicMagnitude /= harmonic;
-                } else if (waveformType == 2) { // square
-                    if (harmonic % 2 == 0) continue;
-                    harmonicMagnitude /= harmonic;
-                }
-
+                double harmonicCoefficient = waveformType;
                 double r;
                 double i;
-                if (waveformType == 0) {
+
+                if (waveformType == 0) { // sine (no harmonics)
+                    if (harmonic != 1) continue;
                     r = harmonicMagnitude * cos(phase * harmonic);
                     i = harmonicMagnitude * sin(phase * harmonic);
                 } else {
+                    if (waveformType <= 1) { // sawtooth
+                        harmonicMagnitude /= harmonic;
+                    } else if (waveformType <= 2) { // square
+                        harmonicMagnitude /= harmonic;
+                        if (harmonic % 2 == 1) {
+                            harmonicCoefficient = 1;
+                        } else {
+                            harmonicCoefficient -= 1; 
+                            harmonicCoefficient = 1 - harmonicCoefficient;
+                        }
+
+                    }
+                    if (harmonic == 1) {
+                        harmonicCoefficient = 1;
+                    }
                     // r = harmonicMagnitude * sin(phase * harmonic);
                     // i = harmonicMagnitude * -cos(phase * harmonic);
-                    r = harmonicMagnitude * cos(phase * harmonic-M_PI_2); // theoretically this 90° phase shift is not needed (-π)
-                    i = harmonicMagnitude * sin(phase * harmonic-M_PI_2); // however when removed the harmonics become misaligned
+                    std::cout << harmonicCoefficient << std::endl;
+                    r = harmonicCoefficient * harmonicMagnitude * cos(phase * harmonic-M_PI_2); // theoretically this 90° phase shift is not needed (-π)
+                    i = harmonicCoefficient * harmonicMagnitude * sin(phase * harmonic-M_PI_2); // however when removed the harmonics become misaligned
                     // the next steps would be to compare the output with respect to the DC component
                     // i.e. after applyCustomWaveform, take the fftw_execute(backward_plan) output
                     // and feed it into the forward plan again, comparing both sets of frequency bins -
@@ -212,7 +222,7 @@ struct FourierSynthesis : Module {
 struct FrequencyDisplay : Widget {
     FourierSynthesis* module;
     std::vector<double>* freqData = nullptr; // pointer to frequency data
-    int numBins = 0;                               // number of bins in display
+    int numBins = 0;                         // number of bins in display
 
     void setNumBins(int bins) {
         numBins = bins;

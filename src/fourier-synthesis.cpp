@@ -16,9 +16,6 @@ struct FourierSynthesis : Module {
     int bufferIndex;
     int sampleRateIndex;
     std::vector<double> freqMagnitudes;
-    std::vector<std::vector<double>> wavetables;
-    std::vector<double> precomputedCos;
-    std::unordered_map<std::string, std::vector<std::vector<double>>> waveformCache;
 
     enum ParamIds {
         BUFFER_PARAM,
@@ -60,7 +57,6 @@ struct FourierSynthesis : Module {
         bufferIndex = 0;
         sampleRateIndex = 0;
         initialiseResources();
-        // precompute wavetables
     }
 
         ~FourierSynthesis() {
@@ -91,12 +87,6 @@ struct FourierSynthesis : Module {
         // generate plans
         forward_plan = fftw_plan_dft_r2c_1d(bufferSize, real_in, freq_out, FFTW_ESTIMATE);
         backward_plan = fftw_plan_dft_c2r_1d(bufferSize, freq_out, real_out, FFTW_ESTIMATE);
-
-        precomputedCos.resize(bufferSize / 2 + 1);
-        // wavetables.clear();
-        // for (int i = 0; i < bufferSize / 2 + 1; ++i) {
-        //     wavetables.push_back(generateWaveform(0, bufferSize, i));
-        // }
     }
 
     void process(const ProcessArgs& args) override {
@@ -110,8 +100,6 @@ struct FourierSynthesis : Module {
             bufferIndex = 0;
             sampleRateIndex = 0;
             initialiseResources();
-            precomputeCos();
-            precomputeWaveforms();
         }
 
         if (sampleRateIndex < sampleRate) {
@@ -119,7 +107,6 @@ struct FourierSynthesis : Module {
         } else {
             sampleRateIndex = 0;
             if (bufferIndex < bufferSize) {
-                // 
                 // stream data from the input to the buffer
                 real_in[bufferIndex] = static_cast<double>(inputs[INPUT_LEFT].getVoltage());
                 // simultaneously output the data from the previous buffer
@@ -133,14 +120,14 @@ struct FourierSynthesis : Module {
                 bufferIndex = 0;
                 fftw_execute(forward_plan);
 
-                applyCustomWaveform(waveformType, bufferSize, freq_out);
                 // modify frequency domain with custom waveforms based on chosen wavetable
+                applyCustomWaveform(waveformType, bufferSize, freq_out);
+
                 // compute magnitudes for the frequency domain (display)
                 freqMagnitudes.resize(bufferSize / 2 + 1);
                 for (int i = 0; i < bufferSize / 2 + 1; i++) {
                     freqMagnitudes[i] = sqrt(freq_out[i][0] * freq_out[i][0] + freq_out[i][1] * freq_out[i][1]);
                 }
-                // applyCustomWaveform(waveformType, bufferSize, freq_out);
 
                 fftw_execute(backward_plan);
             }
@@ -157,29 +144,28 @@ struct FourierSynthesis : Module {
     void applyCustomWaveform(int waveformType, int bufferSize, fftw_complex* freq_out) {
         fftw_complex* temp_freq_out = (fftw_complex*) fftw_malloc((bufferSize / 2 + 1) * sizeof(fftw_complex));
         memset(temp_freq_out, 0, (bufferSize / 2 + 1) * sizeof(fftw_complex));
+        // uncomment for testing
         // memset(freq_out, 0, (bufferSize / 2 + 1) * sizeof(fftw_complex));
         // freq_out[1][0] = 100;
         // freq_out[1][1] = 50;
-        // memcpy(temp_freq_out, freq_out, (bufferSize / 2 + 1) * sizeof(fftw_complex));
-        // freq_out[1][1] = 0;
-        // std::cout << freq_out[0][0] << ":" << freq_out[0][1] << std::endl;
-
+        // freq_out[10][0] = 100;
+        // freq_out[10][1] = 0;
+        // copy DC component
+        temp_freq_out[0][0] = freq_out[0][0]; 
+        temp_freq_out[0][1] = freq_out[0][1];
         for (int bin = 1; bin < bufferSize / 2 + 1; ++bin) {
-        // for (int bin = 1; bin < 2; ++bin) {
             // extract the magnitude and phase of the current bin
-            double magnitude = sqrt(freq_out[bin][0] * freq_out[bin][0] +
-                                        freq_out[bin][1] * freq_out[bin][1]);
+            double magnitude = sqrt(freq_out[bin][0] * freq_out[bin][0] + freq_out[bin][1] * freq_out[bin][1]);
             double phase = atan2(freq_out[bin][1], freq_out[bin][0]);
-
+            
             // generate harmonics based on the waveform type
             for (int harmonic = 1; (bin * harmonic < bufferSize / 2 + 1) && (harmonic <= numHarmonics); ++harmonic) {
-            // for (int harmonic = 1; (bin * harmonic < bufferSize / 2 + 1); ++harmonic) {
                 int targetBin = bin * harmonic;
                 double harmonicMagnitude = magnitude;
 
                 if (waveformType == 0) { // sine
                     // waveform has no harmonics
-                    continue;
+                    if (harmonic != 1) continue;
                 } else if (waveformType == 1) { // sawtooth
                     harmonicMagnitude /= harmonic;
                 } else if (waveformType == 2) { // square
@@ -187,15 +173,27 @@ struct FourierSynthesis : Module {
                     harmonicMagnitude /= harmonic;
                 }
 
-                // std::cout << bin <<":"<< harmonicMagnitude<<std::endl;
-                // std::cout << targetBin << std::endl;
-                double r = harmonicMagnitude * sin(phase * harmonic);
-                double i = harmonicMagnitude * -cos(phase * harmonic);
+                double r;
+                double i;
+                if (waveformType == 0) {
+                    r = harmonicMagnitude * cos(phase * harmonic);
+                    i = harmonicMagnitude * sin(phase * harmonic);
+                } else {
+                    // r = harmonicMagnitude * sin(phase * harmonic);
+                    // i = harmonicMagnitude * -cos(phase * harmonic);
+                    r = harmonicMagnitude * cos(phase * harmonic-M_PI_2); // theoretically this 90° phase shift is not needed (-π)
+                    i = harmonicMagnitude * sin(phase * harmonic-M_PI_2); // however when removed the harmonics become misaligned
+                    // the next steps would be to compare the output with respect to the DC component
+                    // i.e. after applyCustomWaveform, take the fftw_execute(backward_plan) output
+                    // and feed it into the forward plan again, comparing both sets of frequency bins -
+                    // the phases & magnitudes of the second set are ideally the same as the first
+                    // but since we are manually updating the bins in applyCustomWaveform and the DC component
+                    // is not updated, the inverse transform may not be accurate.
+                }
 
                 // accumulate into the target bin
                 temp_freq_out[targetBin][0] += r; // real part
                 temp_freq_out[targetBin][1] += i; // imaginary part
-                // std::cout << targetBin << ":" << temp_freq_out[targetBin][0] << ":" << temp_freq_out[targetBin][1] << std::endl;
             }
         }
         // copy the modified bins back into freq_out
@@ -203,56 +201,6 @@ struct FourierSynthesis : Module {
         fftw_free(temp_freq_out);
     }
 
-
-    void computeOutput() {
-        const auto& wavetables = waveformCache[getWaveformKey()];
-    
-        #pragma omp parallel for
-        for (int i = 0; i < bufferSize; ++i) {
-            double sum = 0.0;
-            for (int j = 0; j < bufferSize / 2 + 1; ++j) {
-                sum += freqMagnitudes[j] * wavetables[j][i] * precomputedCos[j];
-            }
-            real_out[i] = sum;
-        }
-    }
-
-    void precomputeCos() {
-        for (int j = 0; j < bufferSize / 2 + 1; ++j) {
-            precomputedCos[j] = std::cos(std::atan2(freq_out[j][1], freq_out[j][0]));
-        }
-    }
-
-    void precomputeWaveforms() {
-        waveformCache.clear();
-        for (int type = 0; type <= 2; ++type) {
-            std::string key = getWaveformKey(type);
-            waveformCache[key].resize(bufferSize / 2 + 1);
-            for (int harmonic = 0; harmonic <= bufferSize / 2; ++harmonic) {
-                waveformCache[key][harmonic] = generateWaveform(type, bufferSize, harmonic);
-            }
-        }
-    }
-
-    std::string getWaveformKey(int type = -1) const {
-        if (type == -1) type = waveformType;
-        return std::to_string(type) + "_" + std::to_string(bufferSize);
-    }
-
-    std::vector<double> generateWaveform(const int type, int size, int harmonic) {
-        std::vector<double> table(size);
-        for (int i = 0; i < size; ++i) {
-            double phase = 2.0 * M_PI * i * harmonic / size;
-            if (type == 0) // sine
-                table[i] = sin(phase);
-            else if (type == 1) // sawtooth
-                table[i] = 2.0 * (phase / (2.0 * M_PI)) - 1.0; // normalized sawtooth
-            else if (type == 2) // square
-                table[i] = phase < M_PI ? 1.0 : -1.0;
-            // maybe add more types?
-        }
-        return table;
-    }
 };
 
 struct FrequencyDisplay : Widget {

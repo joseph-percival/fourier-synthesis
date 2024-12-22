@@ -93,12 +93,15 @@ struct FourierSynthesis : Module {
 
         if (paramsModified()){
             //reevaluate params & buffers
-            bufferSize = params[BUFFER_PARAM].getValue();
             sampleRate = params[SAMPLE_RATE_PARAM].getValue();
             waveformType = params[WAVEFORM_PARAM].getValue();
             numHarmonics = params[HARMONICS_PARAM].getValue();
-            bufferIndex = 0;
             sampleRateIndex = 0;
+        }
+        if (fftParamsModified()){
+            //reevaluate fft params, recalculating plans
+            bufferSize = params[BUFFER_PARAM].getValue();
+            bufferIndex = 0;
             initialiseResources();
         }
 
@@ -135,10 +138,13 @@ struct FourierSynthesis : Module {
     }
 
     bool paramsModified() {
-        return params[BUFFER_PARAM].getValue() != bufferSize ||
-               params[SAMPLE_RATE_PARAM].getValue() != sampleRate ||
+        return params[SAMPLE_RATE_PARAM].getValue() != sampleRate ||
                params[WAVEFORM_PARAM].getValue() != waveformType ||
                params[HARMONICS_PARAM].getValue() != numHarmonics;
+    }
+
+    bool fftParamsModified() {
+        return params[BUFFER_PARAM].getValue() != bufferSize;
     }
 
     void applyCustomWaveform(int waveformType, int bufferSize, fftw_complex* freq_out) {

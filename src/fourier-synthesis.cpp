@@ -7,7 +7,7 @@ struct FourierSynthesis : Module {
     int bufferSize;
     int sampleRate;
     int waveformType;
-    double numHarmonics;
+    int numHarmonics;
     fftw_plan forward_plan;
     fftw_plan backward_plan;
     double* real_in;
@@ -50,7 +50,7 @@ struct FourierSynthesis : Module {
 		getParamQuantity(SAMPLE_RATE_PARAM)->snapEnabled = true;
         configParam(WAVEFORM_PARAM,0.f,2.f,1.f,"Waveform Type");
 		getParamQuantity(WAVEFORM_PARAM)->snapEnabled = true;
-        configParam(HARMONICS_PARAM,0.f,50.f,1.f,"Number of Harmonics");
+        configParam(HARMONICS_PARAM,1.f,100.f,10.f,"Number of Harmonics");
 		getParamQuantity(HARMONICS_PARAM)->snapEnabled = true;
         //initialise params & buffers
         bufferSize = params[BUFFER_PARAM].getValue();
@@ -125,8 +125,7 @@ struct FourierSynthesis : Module {
                 // simultaneously output the data from the previous buffer
                 // divide by bufferSize since the output of FFTW is scaled by the size of the input buffer
 
-                // outputs[OUTPUT_LEFT].setVoltage(real_out[bufferIndex] / bufferSize);
-                outputs[OUTPUT_LEFT].setVoltage(real_out[bufferIndex]);
+                outputs[OUTPUT_LEFT].setVoltage(real_out[bufferIndex] / bufferSize);
                 outputs[OUTPUT_RIGHT].setVoltage(inputs[INPUT_RIGHT].getVoltage());
                 bufferIndex++;
             } else {
@@ -157,7 +156,7 @@ struct FourierSynthesis : Module {
 
     void applyCustomWaveform(int waveformType, int bufferSize, fftw_complex* freq_out) {
         fftw_complex* temp_freq_out = (fftw_complex*) fftw_malloc((bufferSize / 2 + 1) * sizeof(fftw_complex));
-        // memset(temp_freq_out, 0, (bufferSize / 2 + 1) * sizeof(fftw_complex));
+        memset(temp_freq_out, 0, (bufferSize / 2 + 1) * sizeof(fftw_complex));
         // memset(freq_out, 0, (bufferSize / 2 + 1) * sizeof(fftw_complex));
         // freq_out[1][0] = 100;
         // freq_out[1][1] = 50;
@@ -173,8 +172,8 @@ struct FourierSynthesis : Module {
             double phase = atan2(freq_out[bin][1], freq_out[bin][0]);
 
             // generate harmonics based on the waveform type
-            for (int harmonic = 2; (bin * harmonic < bufferSize / 2 + 1) && (harmonic <= numHarmonics); ++harmonic) {
-            // for (int harmonic = 2; (bin * harmonic < bufferSize / 2 + 1); ++harmonic) {
+            for (int harmonic = 1; (bin * harmonic < bufferSize / 2 + 1) && (harmonic <= numHarmonics); ++harmonic) {
+            // for (int harmonic = 1; (bin * harmonic < bufferSize / 2 + 1); ++harmonic) {
                 int targetBin = bin * harmonic;
                 double harmonicMagnitude = magnitude;
 
@@ -188,26 +187,17 @@ struct FourierSynthesis : Module {
                     harmonicMagnitude /= harmonic;
                 }
 
-                double r = harmonicMagnitude * cos(phase * harmonic);
-                double i = harmonicMagnitude * sin(phase * harmonic);
-
-                std::cout << phase << ":" << atan2(temp_freq_out[targetBin][1], temp_freq_out[targetBin][0]) << std::endl;
-
+                double r = harmonicMagnitude * sin(phase * harmonic);
+                double i = harmonicMagnitude * -cos(phase * harmonic);
 
                 // accumulate into the target bin
                 temp_freq_out[targetBin][0] += r; // real part
                 temp_freq_out[targetBin][1] += i; // imaginary part
-                // std::cout << harmonic << ":" << magnitude << ":" << phase << std::endl;
-                // std::cout << harmonic << ":" << magnitude << ":" << phase << std::endl;
+                // std::cout << targetBin << ":" << temp_freq_out[targetBin][0] << ":" << temp_freq_out[targetBin][1] << std::endl;
             }
-        }
-        for (int i=0; i < bufferSize / 2 + 1; i++) {
-            temp_freq_out[i][0] /= bufferSize;
-            temp_freq_out[i][1] /= bufferSize;
         }
         // copy the modified bins back into freq_out
         memcpy(freq_out, temp_freq_out, (bufferSize / 2 + 1) * sizeof(fftw_complex));
-
         fftw_free(temp_freq_out);
     }
 

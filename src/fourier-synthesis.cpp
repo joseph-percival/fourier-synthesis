@@ -6,7 +6,7 @@
 struct FourierSynthesis : Module {
     int bufferSize;
     int sampleRate;
-    double waveformType;
+    float waveformType;
     int numHarmonics;
     fftw_plan forward_plan;
     fftw_plan backward_plan;
@@ -97,7 +97,6 @@ struct FourierSynthesis : Module {
             sampleRate = params[SAMPLE_RATE_PARAM].getValue();
             waveformType = params[WAVEFORM_PARAM].getValue();
             numHarmonics = params[HARMONICS_PARAM].getValue();
-            sampleRateIndex = 0;
         }
 
         if (fftParamsModified()){
@@ -170,7 +169,7 @@ struct FourierSynthesis : Module {
             for (int harmonic = 1; (bin * harmonic < bufferSize / 2 + 1) && (harmonic <= numHarmonics); ++harmonic) {
                 int targetBin = bin * harmonic;
                 double harmonicMagnitude = magnitude;
-                double harmonicCoefficient = waveformType;
+                float harmonicCoefficient = waveformType;
                 double r;
                 double i;
 
@@ -196,7 +195,6 @@ struct FourierSynthesis : Module {
                     }
                     // r = harmonicMagnitude * sin(phase * harmonic);
                     // i = harmonicMagnitude * -cos(phase * harmonic);
-                    std::cout << harmonicCoefficient << std::endl;
                     r = harmonicCoefficient * harmonicMagnitude * cos(phase * harmonic-M_PI_2); // theoretically this 90° phase shift is not needed (-π)
                     i = harmonicCoefficient * harmonicMagnitude * sin(phase * harmonic-M_PI_2); // however when removed the harmonics become misaligned
                     // the next steps would be to compare the output with respect to the DC component

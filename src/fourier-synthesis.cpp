@@ -160,7 +160,7 @@ struct FourierSynthesis : Module {
         // memset(freq_out, 0, (bufferSize / 2 + 1) * sizeof(fftw_complex));
         // freq_out[1][0] = 100;
         // freq_out[1][1] = 50;
-        memcpy(temp_freq_out, freq_out, (bufferSize / 2 + 1) * sizeof(fftw_complex));
+        // memcpy(temp_freq_out, freq_out, (bufferSize / 2 + 1) * sizeof(fftw_complex));
         // freq_out[1][1] = 0;
         // std::cout << freq_out[0][0] << ":" << freq_out[0][1] << std::endl;
 
@@ -187,6 +187,8 @@ struct FourierSynthesis : Module {
                     harmonicMagnitude /= harmonic;
                 }
 
+                // std::cout << bin <<":"<< harmonicMagnitude<<std::endl;
+                // std::cout << targetBin << std::endl;
                 double r = harmonicMagnitude * sin(phase * harmonic);
                 double i = harmonicMagnitude * -cos(phase * harmonic);
 

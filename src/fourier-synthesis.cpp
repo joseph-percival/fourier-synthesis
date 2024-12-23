@@ -28,9 +28,9 @@ struct FourierSynthesis : Module {
     enum InputIds {
         INPUT_LEFT,
         INPUT_RIGHT,
-        SAMPLE_RATE_MOD,
-        WAVEFORM_MOD,
-        HARMONICS_MOD,
+        INPUT_SAMPLE_RATE,
+        INPUT_WAVEFORM,
+        INPUT_HARMONICS,
         NUM_INPUTS
     };
 
@@ -107,6 +107,10 @@ struct FourierSynthesis : Module {
             bufferIndex = 0;
             initialiseResources();
         }
+
+        if (inputs[INPUT_SAMPLE_RATE].isConnected()) sampleRate *= inputs[INPUT_SAMPLE_RATE].getVoltage();
+        if (inputs[INPUT_WAVEFORM].isConnected()) waveformType *= inputs[INPUT_WAVEFORM].getVoltage();
+        if (inputs[INPUT_HARMONICS].isConnected()) numHarmonics *= inputs[INPUT_HARMONICS].getVoltage();
 
         if (sampleRateIndex < sampleRate) {
             sampleRateIndex++;
@@ -298,9 +302,9 @@ struct FourierSynthesisWidget : ModuleWidget {
 
         addInput(createInput<PJ301MPort>(Vec(18,329), module, FourierSynthesis::INPUT_LEFT));
         addInput(createInput<PJ301MPort>(Vec(47,329), module, FourierSynthesis::INPUT_RIGHT));
-        addInput(createInput<PJ301MPort>(Vec(18,10), module, FourierSynthesis::SAMPLE_RATE_MOD));
-        addInput(createInput<PJ301MPort>(Vec(47,20), module, FourierSynthesis::WAVEFORM_MOD));
-        addInput(createInput<PJ301MPort>(Vec(47,30), module, FourierSynthesis::HARMONICS_MOD));
+        addInput(createInput<PJ301MPort>(Vec(20,250), module, FourierSynthesis::INPUT_SAMPLE_RATE));
+        addInput(createInput<PJ301MPort>(Vec(185,190), module, FourierSynthesis::INPUT_WAVEFORM));
+        addInput(createInput<PJ301MPort>(Vec(120,250), module, FourierSynthesis::INPUT_HARMONICS));
 
         addParam(createParam<RoundLargeBlackKnob>(Vec(34,197), module, FourierSynthesis::BUFFER_PARAM));
         addParam(createParam<RoundLargeBlackKnob>(Vec(57,235), module, FourierSynthesis::SAMPLE_RATE_PARAM));

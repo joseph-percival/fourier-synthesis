@@ -28,6 +28,9 @@ struct FourierSynthesis : Module {
     enum InputIds {
         INPUT_LEFT,
         INPUT_RIGHT,
+        SAMPLE_RATE_MOD,
+        WAVEFORM_MOD,
+        HARMONICS_MOD,
         NUM_INPUTS
     };
 
@@ -47,7 +50,6 @@ struct FourierSynthesis : Module {
         configParam(SAMPLE_RATE_PARAM,0.f,400.f,1.f,"Sample rate reduction");
 		getParamQuantity(SAMPLE_RATE_PARAM)->snapEnabled = true;
         configParam(WAVEFORM_PARAM,0.f,2.f,1.f,"Waveform Type");
-		// getParamQuantity(WAVEFORM_PARAM)->snapEnabled = true;
         configParam(HARMONICS_PARAM,1.f,100.f,10.f,"Number of Harmonics");
 		getParamQuantity(HARMONICS_PARAM)->snapEnabled = true;
         //initialise params & buffers
@@ -296,6 +298,9 @@ struct FourierSynthesisWidget : ModuleWidget {
 
         addInput(createInput<PJ301MPort>(Vec(18,329), module, FourierSynthesis::INPUT_LEFT));
         addInput(createInput<PJ301MPort>(Vec(47,329), module, FourierSynthesis::INPUT_RIGHT));
+        addInput(createInput<PJ301MPort>(Vec(18,10), module, FourierSynthesis::SAMPLE_RATE_MOD));
+        addInput(createInput<PJ301MPort>(Vec(47,20), module, FourierSynthesis::WAVEFORM_MOD));
+        addInput(createInput<PJ301MPort>(Vec(47,30), module, FourierSynthesis::HARMONICS_MOD));
 
         addParam(createParam<RoundLargeBlackKnob>(Vec(34,197), module, FourierSynthesis::BUFFER_PARAM));
         addParam(createParam<RoundLargeBlackKnob>(Vec(57,235), module, FourierSynthesis::SAMPLE_RATE_PARAM));

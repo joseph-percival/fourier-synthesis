@@ -12,10 +12,12 @@ struct FourierSynthesis : Module {
     fftw_plan backward_plan;
     double* real_in;
     fftw_complex* freq_out;
+    fftw_complex* symmetric_freq_out;
     double* real_out;
     int bufferIndex;
     int sampleRateIndex;
     std::vector<double> freqMagnitudes;
+    int t; // testing purposes
 
     enum ParamIds {
         BUFFER_PARAM,
@@ -45,10 +47,10 @@ struct FourierSynthesis : Module {
 
     FourierSynthesis() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
-        configParam(BUFFER_PARAM,1.f,10000.f,1.f,"Buffer Size");
+        configParam(BUFFER_PARAM,1.f,12000.f,1.f,"Buffer Size");
 		getParamQuantity(BUFFER_PARAM)->snapEnabled = true;
-        configParam(SAMPLE_RATE_PARAM,0.f,400.f,1.f,"Sample rate reduction");
-		getParamQuantity(SAMPLE_RATE_PARAM)->snapEnabled = true;
+        configParam(SAMPLE_RATE_PARAM,0.f,100.f,1.f,"Sample rate reduction");
+		// getParamQuantity(SAMPLE_RATE_PARAM)->snapEnabled = true;
         configParam(WAVEFORM_PARAM,0.f,2.f,1.f,"Waveform Type");
         configParam(HARMONICS_PARAM,1.f,100.f,10.f,"Number of Harmonics");
 		getParamQuantity(HARMONICS_PARAM)->snapEnabled = true;
@@ -59,6 +61,7 @@ struct FourierSynthesis : Module {
         numHarmonics = params[HARMONICS_PARAM].getValue();
         bufferIndex = 0;
         sampleRateIndex = 0;
+        t = 0;
         initialiseResources();
     }
 
@@ -66,6 +69,7 @@ struct FourierSynthesis : Module {
         if (real_in) fftw_free(real_in);
         if (real_out) fftw_free(real_out);
         if (freq_out) fftw_free(freq_out);
+        if (symmetric_freq_out) fftw_free(symmetric_freq_out);
         if (forward_plan) fftw_destroy_plan(forward_plan);
         if (backward_plan) fftw_destroy_plan(backward_plan);
     }
@@ -81,6 +85,7 @@ struct FourierSynthesis : Module {
         // allocate buffers
         real_in = fftw_alloc_real(bufferSize);
         freq_out = fftw_alloc_complex(bufferSize / 2 + 1);
+        symmetric_freq_out = fftw_alloc_complex(bufferSize);
         real_out = fftw_alloc_real(bufferSize);
 
         // set real_out array to zero to prevent the module
@@ -89,7 +94,7 @@ struct FourierSynthesis : Module {
 
         // generate plans
         forward_plan = fftw_plan_dft_r2c_1d(bufferSize, real_in, freq_out, FFTW_ESTIMATE);
-        backward_plan = fftw_plan_dft_c2r_1d(bufferSize, freq_out, real_out, FFTW_ESTIMATE);
+        backward_plan = fftw_plan_dft_c2r_1d(bufferSize, symmetric_freq_out, real_out, FFTW_ESTIMATE);
     }
 
     void process(const ProcessArgs& args) override {
@@ -108,21 +113,36 @@ struct FourierSynthesis : Module {
             initialiseResources();
         }
 
-        if (inputs[INPUT_SAMPLE_RATE].isConnected()) sampleRate *= inputs[INPUT_SAMPLE_RATE].getVoltage();
-        if (inputs[INPUT_WAVEFORM].isConnected()) waveformType *= inputs[INPUT_WAVEFORM].getVoltage();
-        if (inputs[INPUT_HARMONICS].isConnected()) numHarmonics *= inputs[INPUT_HARMONICS].getVoltage();
+        if (inputs[INPUT_SAMPLE_RATE].isConnected()) sampleRate += inputs[INPUT_SAMPLE_RATE].getVoltage();
+        if (inputs[INPUT_WAVEFORM].isConnected()) waveformType += inputs[INPUT_WAVEFORM].getVoltage();
+        if (inputs[INPUT_HARMONICS].isConnected()) numHarmonics += inputs[INPUT_HARMONICS].getVoltage();
 
         if (sampleRateIndex < sampleRate) {
+        // if (false) {
             sampleRateIndex++;
         } else {
             sampleRateIndex = 0;
             if (bufferIndex < bufferSize) {
                 // stream data from the input to the buffer
                 real_in[bufferIndex] = static_cast<double>(inputs[INPUT_LEFT].getVoltage());
+                
+                // real_in[bufferIndex] = sin(t*M_PI*2 / 12000); // test input
+                // real_in[bufferIndex] += -sin(t*M_PI*2*2 / 12000)/2; // test input
+                // real_in[bufferIndex] += sin(t*M_PI*2*3 / 12000)/3; // test input
+                // real_in[bufferIndex] += -sin(t*M_PI*2*4 / 12000)/4; // test input
+                // real_in[bufferIndex] = real_in[bufferIndex]
+                // real_in[bufferIndex] = cos(t*M_PI*2 / 12000); // test input
+                // // std::cout << t << " " << real_in[bufferIndex] << std::endl;
+                // // real_in[bufferIndex] = 2.0 * (t / 12000.0) - 1; // sawtooth wave formula
+                t++;
+                if (t >= 12000) {
+                    t = 0;
+                }
                 // simultaneously output the data from the previous buffer
                 // divide by bufferSize since the output of FFTW is scaled by the size of the input buffer
 
                 outputs[OUTPUT_LEFT].setVoltage(real_out[bufferIndex] / bufferSize);
+                // std::cout << t << " " << real_out[bufferIndex]/bufferSize << std::endl;
                 outputs[OUTPUT_RIGHT].setVoltage(inputs[INPUT_RIGHT].getVoltage());
                 bufferIndex++;
             } else {
@@ -130,13 +150,29 @@ struct FourierSynthesis : Module {
                 bufferIndex = 0;
                 fftw_execute(forward_plan);
 
+                std::cout << "before" << std::endl;
+                // freqMagnitudes.resize(bufferSize / 2 + 1);
+                for (int i = 0; i < bufferSize / 2 + 1; i++) {
+                    std::cout << i << ":" << freq_out[i][0] << ":" << freq_out[i][1] <<std::endl;
+                    // freqMagnitudes[i] = sqrt(freq_out[i][0] * freq_out[i][0] + freq_out[i][1] * freq_out[i][1]);
+                }
                 // modify frequency domain with custom waveforms based on chosen wavetable
                 applyCustomWaveform(waveformType, bufferSize, freq_out);
 
                 // compute magnitudes for the frequency domain (display)
+                std::cout << "after" << std::endl;
                 freqMagnitudes.resize(bufferSize / 2 + 1);
                 for (int i = 0; i < bufferSize / 2 + 1; i++) {
+                    std::cout << i << ":" << freq_out[i][0] << ":" << freq_out[i][1] <<std::endl;
                     freqMagnitudes[i] = sqrt(freq_out[i][0] * freq_out[i][0] + freq_out[i][1] * freq_out[i][1]);
+                }
+
+                // reconstruct negative frequencies for symmetry (not necessary, remove)
+                memcpy(symmetric_freq_out, freq_out, (bufferSize / 2 + 1) * sizeof(fftw_complex));
+                for (int i = 1; i < bufferSize / 2; i++) {
+                    int mirrorIndex = bufferSize - i;
+                    symmetric_freq_out[mirrorIndex][0] = freq_out[i][0];  // Copy real part
+                    symmetric_freq_out[mirrorIndex][1] = -freq_out[i][1]; // Negate imaginary part
                 }
 
                 fftw_execute(backward_plan);
@@ -158,18 +194,30 @@ struct FourierSynthesis : Module {
         fftw_complex* temp_freq_out = (fftw_complex*) fftw_malloc((bufferSize / 2 + 1) * sizeof(fftw_complex));
         memset(temp_freq_out, 0, (bufferSize / 2 + 1) * sizeof(fftw_complex));
         // uncomment for testing
-        // memset(freq_out, 0, (bufferSize / 2 + 1) * sizeof(fftw_complex));
-        // freq_out[1][0] = 100;
-        // freq_out[1][1] = 50;
+        memset(freq_out, 0, (bufferSize / 2 + 1) * sizeof(fftw_complex));
+        freq_out[1][0] = 100;
+        freq_out[1][1] = 0;
+        // freq_out[2][0] = 50;
+        // freq_out[2][1] = 0;
+        // freq_out[3][0] = 33;
+        // freq_out[3][1] = 0;
+        // freq_out[4][0] = 25;
+        // freq_out[4][1] = 0;
         // freq_out[10][0] = 100;
         // freq_out[10][1] = 0;
         // copy DC component
         temp_freq_out[0][0] = freq_out[0][0]; 
         temp_freq_out[0][1] = freq_out[0][1];
         for (int bin = 1; bin < bufferSize / 2 + 1; ++bin) {
+            // freq_out[bin][1] *= -1; // conjugate component (temp)
             // extract the magnitude and phase of the current bin
             double magnitude = sqrt(freq_out[bin][0] * freq_out[bin][0] + freq_out[bin][1] * freq_out[bin][1]);
             double phase = atan2(freq_out[bin][1], freq_out[bin][0]);
+            // double phase = atan(freq_out[bin][1] / freq_out[bin][0]);
+            if (bin == 1) {
+                std::cout << phase << std::endl;
+                std::cout << freq_out[bin][0] << ":" << freq_out[bin][1];
+            }
             
             // generate harmonics based on the waveform type
             for (int harmonic = 1; (bin * harmonic < bufferSize / 2 + 1) && (harmonic <= numHarmonics); ++harmonic) {
@@ -178,15 +226,14 @@ struct FourierSynthesis : Module {
                 float harmonicCoefficient = waveformType;
                 double r;
                 double i;
-
-                if (waveformType == 0) { // sine (no harmonics)
+                if (waveformType <= 0) { // sine (no harmonics)
                     if (harmonic != 1) continue;
-                    r = harmonicMagnitude * cos(phase * harmonic);
-                    i = harmonicMagnitude * sin(phase * harmonic);
+                    r = freq_out[bin][0];
+                    i = freq_out[bin][1];
                 } else {
                     if (waveformType <= 1) { // sawtooth
                         harmonicMagnitude /= harmonic;
-                    } else if (waveformType <= 2) { // square
+                    } else if (waveformType > 1) { // square
                         harmonicMagnitude /= harmonic;
                         if (harmonic % 2 == 1) {
                             harmonicCoefficient = 1;
@@ -194,15 +241,26 @@ struct FourierSynthesis : Module {
                             harmonicCoefficient -= 1; 
                             harmonicCoefficient = 1 - harmonicCoefficient;
                         }
-
                     }
                     if (harmonic == 1) {
                         harmonicCoefficient = 1;
                     }
-                    // r = harmonicMagnitude * sin(phase * harmonic);
-                    // i = harmonicMagnitude * -cos(phase * harmonic);
-                    r = harmonicCoefficient * harmonicMagnitude * cos(phase * harmonic-M_PI_2); // theoretically this 90° phase shift is not needed (-π)
-                    i = harmonicCoefficient * harmonicMagnitude * sin(phase * harmonic-M_PI_2); // however when removed the harmonics become misaligned
+                    r = harmonicCoefficient * harmonicMagnitude * cos(phase * harmonic + std::pow(-1,harmonic) * M_PI_2);
+                    i = harmonicCoefficient * harmonicMagnitude * sin(phase * harmonic + std::pow(-1,harmonic) * M_PI_2);
+                    // minus sign might not be completely working - need to consider base frequency
+                    // double period = calculatePeriod(targetBin, 48000, bufferSize / 2);
+                    // double phaseAdjustment = calculatePhaseAdjustment(harmonic, period);
+                    // double harmonicPhase = phase + phaseAdjustment;
+
+                    // std::cout << phase + phase - M_PI_2
+                    
+                    // r = harmonicCoefficient * harmonicMagnitude * cos(phase * harmonic);
+                    // i = harmonicCoefficient * harmonicMagnitude * sin(phase * harmonic);
+
+                    // r = harmonicCoefficient * harmonicMagnitude * cos(phase * harmonic - M_PI_2*(harmonic-1));
+                    // i = harmonicCoefficient * harmonicMagnitude * sin(phase * harmonic - M_PI_2*(harmonic-1));
+                    // r = harmonicCoefficient * harmonicMagnitude * cos(phase * harmonic-M_PI_2); // theoretically this 90° phase shift is not needed (-π)
+                    // i = harmonicCoefficient * harmonicMagnitude * sin(phase * harmonic-M_PI_2); // however when removed the harmonics become misaligned
                     // the next steps would be to compare the output with respect to the DC component
                     // i.e. after applyCustomWaveform, take the fftw_execute(backward_plan) output
                     // and feed it into the forward plan again, comparing both sets of frequency bins -
@@ -220,7 +278,6 @@ struct FourierSynthesis : Module {
         memcpy(freq_out, temp_freq_out, (bufferSize / 2 + 1) * sizeof(fftw_complex));
         fftw_free(temp_freq_out);
     }
-
 };
 
 struct FrequencyDisplay : Widget {

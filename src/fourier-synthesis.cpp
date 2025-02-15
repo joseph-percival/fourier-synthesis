@@ -54,7 +54,7 @@ struct FourierSynthesis : Module {
         configParam(WAVEFORM_PARAM,0.f,2.f,1.f,"Waveform Type");
         configParam(HARMONICS_PARAM,1.f,100.f,10.f,"Number of Harmonics");
 		getParamQuantity(HARMONICS_PARAM)->snapEnabled = true;
-        //initialise params & buffers
+        // initialise params & buffers
         bufferSize = params[BUFFER_PARAM].getValue();
         sampleRate = params[SAMPLE_RATE_PARAM].getValue();
         waveformType = params[WAVEFORM_PARAM].getValue();
@@ -82,7 +82,7 @@ struct FourierSynthesis : Module {
         if (forward_plan) fftw_destroy_plan(forward_plan);
         if (backward_plan) fftw_destroy_plan(backward_plan);
 
-        // allocate buffers
+        // allocate buffers 
         real_in = fftw_alloc_real(bufferSize);
         freq_out = fftw_alloc_complex(bufferSize / 2 + 1);
         symmetric_freq_out = fftw_alloc_complex(bufferSize);
@@ -134,10 +134,10 @@ struct FourierSynthesis : Module {
                 // real_in[bufferIndex] = cos(t*M_PI*2 / 12000); // test input
                 // // std::cout << t << " " << real_in[bufferIndex] << std::endl;
                 // // real_in[bufferIndex] = 2.0 * (t / 12000.0) - 1; // sawtooth wave formula
-                t++;
-                if (t >= 12000) {
-                    t = 0;
-                }
+                // t++;
+                // if (t >= 12000) {
+                //     t = 0;
+                // }
                 // simultaneously output the data from the previous buffer
                 // divide by bufferSize since the output of FFTW is scaled by the size of the input buffer
 
@@ -150,20 +150,20 @@ struct FourierSynthesis : Module {
                 bufferIndex = 0;
                 fftw_execute(forward_plan);
 
-                std::cout << "before" << std::endl;
+                // std::cout << "before" << std::endl;
                 // freqMagnitudes.resize(bufferSize / 2 + 1);
                 for (int i = 0; i < bufferSize / 2 + 1; i++) {
-                    std::cout << i << ":" << freq_out[i][0] << ":" << freq_out[i][1] <<std::endl;
+                    // std::cout << i << ":" << freq_out[i][0] << ":" << freq_out[i][1] <<std::endl;
                     // freqMagnitudes[i] = sqrt(freq_out[i][0] * freq_out[i][0] + freq_out[i][1] * freq_out[i][1]);
                 }
                 // modify frequency domain with custom waveforms based on chosen wavetable
                 applyCustomWaveform(waveformType, bufferSize, freq_out);
 
                 // compute magnitudes for the frequency domain (display)
-                std::cout << "after" << std::endl;
+                // std::cout << "after" << std::endl;
                 freqMagnitudes.resize(bufferSize / 2 + 1);
                 for (int i = 0; i < bufferSize / 2 + 1; i++) {
-                    std::cout << i << ":" << freq_out[i][0] << ":" << freq_out[i][1] <<std::endl;
+                    // std::cout << i << ":" << freq_out[i][0] << ":" << freq_out[i][1] <<std::endl;
                     freqMagnitudes[i] = sqrt(freq_out[i][0] * freq_out[i][0] + freq_out[i][1] * freq_out[i][1]);
                 }
 
@@ -193,31 +193,20 @@ struct FourierSynthesis : Module {
     void applyCustomWaveform(double waveformType, int bufferSize, fftw_complex* freq_out) {
         fftw_complex* temp_freq_out = (fftw_complex*) fftw_malloc((bufferSize / 2 + 1) * sizeof(fftw_complex));
         memset(temp_freq_out, 0, (bufferSize / 2 + 1) * sizeof(fftw_complex));
-        // uncomment for testing
-        memset(freq_out, 0, (bufferSize / 2 + 1) * sizeof(fftw_complex));
-        freq_out[1][0] = 100;
-        freq_out[1][1] = 0;
-        // freq_out[2][0] = 50;
-        // freq_out[2][1] = 0;
-        // freq_out[3][0] = 33;
-        // freq_out[3][1] = 0;
-        // freq_out[4][0] = 25;
-        // freq_out[4][1] = 0;
-        // freq_out[10][0] = 100;
-        // freq_out[10][1] = 0;
+
         // copy DC component
         temp_freq_out[0][0] = freq_out[0][0]; 
         temp_freq_out[0][1] = freq_out[0][1];
         for (int bin = 1; bin < bufferSize / 2 + 1; ++bin) {
-            // freq_out[bin][1] *= -1; // conjugate component (temp)
+            if (waveformType != 0){
+                // pre-emptive 90° rotation on base freq
+                double temp = freq_out[bin][0];
+                freq_out[bin][0] = -freq_out[bin][1];
+                freq_out[bin][1] = temp;
+            }
             // extract the magnitude and phase of the current bin
             double magnitude = sqrt(freq_out[bin][0] * freq_out[bin][0] + freq_out[bin][1] * freq_out[bin][1]);
             double phase = atan2(freq_out[bin][1], freq_out[bin][0]);
-            // double phase = atan(freq_out[bin][1] / freq_out[bin][0]);
-            if (bin == 1) {
-                std::cout << phase << std::endl;
-                std::cout << freq_out[bin][0] << ":" << freq_out[bin][1];
-            }
             
             // generate harmonics based on the waveform type
             for (int harmonic = 1; (bin * harmonic < bufferSize / 2 + 1) && (harmonic <= numHarmonics); ++harmonic) {
@@ -247,26 +236,6 @@ struct FourierSynthesis : Module {
                     }
                     r = harmonicCoefficient * harmonicMagnitude * cos(phase * harmonic + std::pow(-1,harmonic) * M_PI_2);
                     i = harmonicCoefficient * harmonicMagnitude * sin(phase * harmonic + std::pow(-1,harmonic) * M_PI_2);
-                    // minus sign might not be completely working - need to consider base frequency
-                    // double period = calculatePeriod(targetBin, 48000, bufferSize / 2);
-                    // double phaseAdjustment = calculatePhaseAdjustment(harmonic, period);
-                    // double harmonicPhase = phase + phaseAdjustment;
-
-                    // std::cout << phase + phase - M_PI_2
-                    
-                    // r = harmonicCoefficient * harmonicMagnitude * cos(phase * harmonic);
-                    // i = harmonicCoefficient * harmonicMagnitude * sin(phase * harmonic);
-
-                    // r = harmonicCoefficient * harmonicMagnitude * cos(phase * harmonic - M_PI_2*(harmonic-1));
-                    // i = harmonicCoefficient * harmonicMagnitude * sin(phase * harmonic - M_PI_2*(harmonic-1));
-                    // r = harmonicCoefficient * harmonicMagnitude * cos(phase * harmonic-M_PI_2); // theoretically this 90° phase shift is not needed (-π)
-                    // i = harmonicCoefficient * harmonicMagnitude * sin(phase * harmonic-M_PI_2); // however when removed the harmonics become misaligned
-                    // the next steps would be to compare the output with respect to the DC component
-                    // i.e. after applyCustomWaveform, take the fftw_execute(backward_plan) output
-                    // and feed it into the forward plan again, comparing both sets of frequency bins -
-                    // the phases & magnitudes of the second set are ideally the same as the first
-                    // but since we are manually updating the bins in applyCustomWaveform and the DC component
-                    // is not updated, the inverse transform may not be accurate.
                 }
 
                 // accumulate into the target bin
@@ -304,7 +273,6 @@ struct FrequencyDisplay : Widget {
     }
 
     void draw(const DrawArgs& args) override {
-        // ensure frequency data is available
         if (!freqData || freqData->empty()) return;
 
         // get widget size
@@ -325,16 +293,28 @@ struct FrequencyDisplay : Widget {
         // normalise data
         scale(*freqData);
 
-        // draw frequency spectrum
+        // Draw frequency spectrum (upper part)
         nvgBeginPath(vg);
         for (int i = 0; i < numBins; i++) {
             float x = (float)i / numBins * width;
-            float barHeight = (*freqData)[i] * height; // scale frequency magnitude
-            nvgRect(vg, x, height - barHeight, width / numBins, barHeight);
+            float barHeight = (*freqData)[i] * (height / 2); // Scale frequency magnitude
+            nvgRect(vg, x, (height / 2) - barHeight, width / numBins, barHeight);
         }
+        nvgFillColor(vg, nvgRGB(230, 233, 169)); // LED white
+        nvgFill(vg);
+
+        // Draw mirrored frequency spectrum (lower part)
+        nvgBeginPath(vg);
+        for (int i = 0; i < numBins; i++) {
+            float x = (float)i / numBins * width;
+            float barHeight = (*freqData)[i] * (height / 2); // Scale frequency magnitude
+            nvgRect(vg, x, height / 2, width / numBins, barHeight);
+        }
+        nvgFillColor(vg, nvgRGB(230, 233, 169)); // LED white
+        nvgFill(vg);
         // nvgFillColor(vg, nvgRGB(0, 200, 255)); //cyan
         // nvgFillColor(vg, nvgRGB(0, 0, 0)); //black
-        nvgFillColor(vg, nvgRGB(230, 233, 169)); //LED white
+        // nvgFillColor(vg, nvgRGB(230, 233, 169)); //LED white
         // nvgFillColor(vg, nvgRGB(255, 255, 255)); //white
         nvgFill(vg);
     }

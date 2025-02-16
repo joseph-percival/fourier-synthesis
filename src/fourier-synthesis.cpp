@@ -13,9 +13,14 @@ struct FourierSynthesis : Module {
     double* real_in;
     fftw_complex* freq_out;
     double* real_out;
+    double* left_buffer_in;
+    double* right_buffer_in;
+    double* left_buffer_out;
+    double* right_buffer_out;
     int bufferIndex;
     int sampleRateIndex;
-    std::vector<double> freqMagnitudes;
+    std::vector<double> leftFreqMagnitudes;
+    std::vector<double> rightFreqMagnitudes;
     int t; // testing purposes
 
     enum ParamIds {
@@ -71,6 +76,10 @@ struct FourierSynthesis : Module {
         if (freq_out) fftw_free(freq_out);
         if (forward_plan) fftw_destroy_plan(forward_plan);
         if (backward_plan) fftw_destroy_plan(backward_plan);
+        if (left_buffer_in) fftw_free(left_buffer_in);
+        if (right_buffer_in) fftw_free(right_buffer_in);
+        if (left_buffer_out) fftw_free(left_buffer_out);
+        if (right_buffer_out) fftw_free(right_buffer_out);
     }
 
     void initialiseResources() {
@@ -78,6 +87,10 @@ struct FourierSynthesis : Module {
         if (real_in) fftw_free(real_in);
         if (freq_out) fftw_free(freq_out);
         if (real_out) fftw_free(real_out);
+        if (left_buffer_in) fftw_free(left_buffer_in);
+        if (right_buffer_in) fftw_free(right_buffer_in);
+        if (left_buffer_out) fftw_free(left_buffer_out);
+        if (right_buffer_out) fftw_free(right_buffer_out);
         if (forward_plan) fftw_destroy_plan(forward_plan);
         if (backward_plan) fftw_destroy_plan(backward_plan);
 
@@ -85,10 +98,16 @@ struct FourierSynthesis : Module {
         real_in = fftw_alloc_real(bufferSize);
         freq_out = fftw_alloc_complex(bufferSize / 2 + 1);
         real_out = fftw_alloc_real(bufferSize);
+        left_buffer_in = fftw_alloc_real(bufferSize);
+        right_buffer_in = fftw_alloc_real(bufferSize);
+        left_buffer_out = fftw_alloc_real(bufferSize);
+        right_buffer_out = fftw_alloc_real(bufferSize);
 
         // set real_out array to zero to prevent the module
         // from outputting undefined array content
         memset(real_out, 0, bufferSize * sizeof(double));
+        memset(left_buffer_out, 0, bufferSize * sizeof(double));
+        memset(right_buffer_out, 0, bufferSize * sizeof(double));
 
         // generate plans
         forward_plan = fftw_plan_dft_r2c_1d(bufferSize, real_in, freq_out, FFTW_ESTIMATE);
@@ -121,12 +140,15 @@ struct FourierSynthesis : Module {
             sampleRateIndex = 0;
             if (bufferIndex < bufferSize) {
                 // stream data from the input to the buffer
-                real_in[bufferIndex] = static_cast<double>(inputs[INPUT_LEFT].getVoltage());
+                left_buffer_in[bufferIndex] = static_cast<double>(inputs[INPUT_LEFT].getVoltage());
+                right_buffer_in[bufferIndex] = static_cast<double>(inputs[INPUT_RIGHT].getVoltage());
                 // simultaneously output the data from the previous buffer
                 // divide by bufferSize since the output of FFTW is scaled by the size of the input buffer
 
-                outputs[OUTPUT_LEFT].setVoltage(real_out[bufferIndex] / bufferSize);
-                outputs[OUTPUT_RIGHT].setVoltage(inputs[INPUT_RIGHT].getVoltage());
+                outputs[OUTPUT_LEFT].setVoltage(left_buffer_out[bufferIndex] / bufferSize);
+                outputs[OUTPUT_RIGHT].setVoltage(right_buffer_out[bufferIndex] / bufferSize);
+
+                // outputs[OUTPUT_RIGHT].setVoltage(inputs[INPUT_RIGHT].getVoltage());
 
                 // float brightness = clamp(fabs(real_out[bufferIndex] / bufferSize), 0.0f, 1.0f);
                 // lights[SIGNAL_LIGHT].setBrightness(brightness);
@@ -135,19 +157,33 @@ struct FourierSynthesis : Module {
             } else {
                 // make sure you don't miss a sample here
                 bufferIndex = 0;
-                fftw_execute(forward_plan);
 
-                // freqMagnitudes.resize(bufferSize / 2 + 1);
+                memcpy(real_in, left_buffer_in, bufferSize*sizeof(double));
+                fftw_execute(forward_plan);
                 // modify frequency domain with custom waveforms based on chosen wavetable
                 applyCustomWaveform(waveformType, bufferSize, freq_out);
-
-                // compute magnitudes for the frequency domain (display)
-                freqMagnitudes.resize(bufferSize / 2 + 1);
+                // compute magnitudes for the frequency domain (upper display)
+                leftFreqMagnitudes.resize(bufferSize / 2 + 1);
                 for (int i = 0; i < bufferSize / 2 + 1; i++) {
-                    freqMagnitudes[i] = sqrt(freq_out[i][0] * freq_out[i][0] + freq_out[i][1] * freq_out[i][1]);
+                    leftFreqMagnitudes[i] = sqrt(freq_out[i][0] * freq_out[i][0] + freq_out[i][1] * freq_out[i][1]);
                 }
-                
                 fftw_execute(backward_plan);
+                memcpy(left_buffer_out, real_out, bufferSize*sizeof(double));
+
+
+                memcpy(real_in, right_buffer_in, bufferSize*sizeof(double));
+                fftw_execute(forward_plan);
+                // modify frequency domain with custom waveforms based on chosen wavetable
+                applyCustomWaveform(waveformType, bufferSize, freq_out);
+                // compute magnitudes for lower display
+                rightFreqMagnitudes.resize(bufferSize / 2 + 1);
+                for (int i = 0; i < bufferSize / 2 + 1; i++) {
+                    rightFreqMagnitudes[i] = sqrt(freq_out[i][0] * freq_out[i][0] + freq_out[i][1] * freq_out[i][1]);
+                }
+                fftw_execute(backward_plan);
+                memcpy(right_buffer_out, real_out, bufferSize*sizeof(double));
+                
+
             }
         }
     }
@@ -224,7 +260,8 @@ struct FourierSynthesis : Module {
 struct FrequencyDisplay : TransparentWidget {
     FourierSynthesis* module;
     ModuleWidget* moduleWidget;
-    std::vector<double>* freqData = nullptr; // pointer to frequency data
+    std::vector<double>* leftFreqData = nullptr; // pointer to frequency data
+    std::vector<double>* rightFreqData = nullptr;
     int numBins = 0;                         // number of bins in display
 
     void setNumBins(int bins) {
@@ -239,25 +276,51 @@ struct FrequencyDisplay : TransparentWidget {
         // handle division by 0 error
         if (max_value - min_value == 0) return;
 
+        for (auto& value : data) {
+            if (std::isnan(value) || std::isinf(value)) {
+                value = 0.0;  // Reset invalid values
+            }
+        }
+
         // normalize each value in the array
         for (auto& value : data) {
             value = (value - min_value) / (max_value - min_value);
         }
     }
+    // void scale(std::vector<double>& data, double maxRange = 1.0) {
+    //     if (data.empty()) return;
+
+    //     double max_value = *std::max_element(data.begin(), data.end());
+    //     if (max_value == 0.0) max_value = 1; // prevent division by zero
+
+    //     for (auto& value : data) {
+    //         if (std::isnan(value) || std::isinf(value)) {
+    //             value = 0.0;  // Reset invalid values
+    //         } else {
+    //             value = (value / max_value) * maxRange; // scale to [0, maxRange]
+    //         }
+    //     }
+    // }
 
     void drawLayer(const DrawArgs& args, int layer) override {
         if (layer != 1)
             return; // Only draw on the foreground layer
-        if (!freqData || freqData->empty()) return;
-
+        if (!leftFreqData || leftFreqData->empty()) return;
+        if (!rightFreqData || leftFreqData->empty()) return;
+        // std::cout << "freqs" << std::endl;
+        // for (auto& value : *leftFreqData) {
+        //     std::cout << value << std::endl;
+        // }
         // get widget size
         NVGcontext* vg = args.vg;
         float width = box.size.x;
         float height = box.size.y;
 
         // update number of bins
-        numBins = (*freqData).size();
-        (*freqData).resize(numBins, 0.0f);
+        numBins = (*leftFreqData).size();
+        (*leftFreqData).resize(numBins, 0.0f);
+        numBins = (*rightFreqData).size();
+        (*rightFreqData).resize(numBins, 0.0f);
 
         // draw background (temporary for positioning)
         // nvgBeginPath(vg);
@@ -266,7 +329,11 @@ struct FrequencyDisplay : TransparentWidget {
         // nvgFill(vg);
 
         // normalise data
-        scale(*freqData);
+        scale(*leftFreqData);
+        scale(*rightFreqData);
+        // for (auto& value : *freqData) {
+        //     value = std::log10(value);
+        // }
         // nvgGlobalCompositeOperation(vg, NVG_LIGHTER);
 
 
@@ -277,7 +344,7 @@ struct FrequencyDisplay : TransparentWidget {
             nvgBeginPath(vg);
             for (int i = 0; i < numBins; i++) {
                 float x = (float)i / numBins * width;
-                float barHeight = (*freqData)[i] * (height / 2); // Scale frequency magnitude
+                float barHeight = (*leftFreqData)[i] * (height / 2); // Scale frequency magnitude
                 // nvgRect(vg, x, (height / 2) - barHeight, width / numBins, barHeight);
                 nvgRect(vg, x - spread / 2, (height / 2) - barHeight - spread / 2, (width / numBins) + spread, barHeight + spread);
             }
@@ -288,7 +355,7 @@ struct FrequencyDisplay : TransparentWidget {
             nvgBeginPath(vg);
             for (int i = 0; i < numBins; i++) {
                 float x = (float)i / numBins * width;
-                float barHeight = (*freqData)[i] * (height / 2); // Scale frequency magnitude
+                float barHeight = (*rightFreqData)[i] * (height / 2); // Scale frequency magnitude
                 // nvgRect(vg, x, height / 2, width / numBins, barHeight);
                 nvgRect(vg, x - spread / 2, (height / 2) - spread / 2, (width / numBins) + spread, barHeight + spread);
             }
@@ -342,7 +409,8 @@ struct FourierSynthesisWidget : ModuleWidget {
             auto* display = new FrequencyDisplay();
             display->box.pos = Vec(3 * RACK_GRID_WIDTH, 5 * RACK_GRID_WIDTH);
             display->box.size = Vec(9 * RACK_GRID_WIDTH, 3 * RACK_GRID_WIDTH);
-            display->freqData = &module->freqMagnitudes;
+            display->leftFreqData = &module->leftFreqMagnitudes;
+            display->rightFreqData = &module->rightFreqMagnitudes;
             display->setNumBins(module->bufferSize / 2 + 1);
             display->module = module;
             display->moduleWidget = this;

@@ -12,7 +12,6 @@ struct FourierSynthesis : Module {
     fftw_plan backward_plan;
     double* real_in;
     fftw_complex* freq_out;
-    fftw_complex* symmetric_freq_out;
     double* real_out;
     int bufferIndex;
     int sampleRateIndex;
@@ -42,6 +41,7 @@ struct FourierSynthesis : Module {
         NUM_OUTPUTS
     };
     enum LightId {
+        SIGNAL_LIGHT,
         NUM_LIGHTS
     };
 
@@ -49,7 +49,7 @@ struct FourierSynthesis : Module {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
         configParam(BUFFER_PARAM,1.f,12000.f,1.f,"Buffer Size");
 		getParamQuantity(BUFFER_PARAM)->snapEnabled = true;
-        configParam(SAMPLE_RATE_PARAM,0.f,100.f,1.f,"Sample rate reduction");
+        configParam(SAMPLE_RATE_PARAM,0.f,50.f,1.f,"Sample rate reduction");
 		// getParamQuantity(SAMPLE_RATE_PARAM)->snapEnabled = true;
         configParam(WAVEFORM_PARAM,0.f,2.f,1.f,"Waveform Type");
         configParam(HARMONICS_PARAM,1.f,100.f,10.f,"Number of Harmonics");
@@ -69,7 +69,6 @@ struct FourierSynthesis : Module {
         if (real_in) fftw_free(real_in);
         if (real_out) fftw_free(real_out);
         if (freq_out) fftw_free(freq_out);
-        if (symmetric_freq_out) fftw_free(symmetric_freq_out);
         if (forward_plan) fftw_destroy_plan(forward_plan);
         if (backward_plan) fftw_destroy_plan(backward_plan);
     }
@@ -85,7 +84,6 @@ struct FourierSynthesis : Module {
         // allocate buffers 
         real_in = fftw_alloc_real(bufferSize);
         freq_out = fftw_alloc_complex(bufferSize / 2 + 1);
-        symmetric_freq_out = fftw_alloc_complex(bufferSize);
         real_out = fftw_alloc_real(bufferSize);
 
         // set real_out array to zero to prevent the module
@@ -94,7 +92,7 @@ struct FourierSynthesis : Module {
 
         // generate plans
         forward_plan = fftw_plan_dft_r2c_1d(bufferSize, real_in, freq_out, FFTW_ESTIMATE);
-        backward_plan = fftw_plan_dft_c2r_1d(bufferSize, symmetric_freq_out, real_out, FFTW_ESTIMATE);
+        backward_plan = fftw_plan_dft_c2r_1d(bufferSize, freq_out, real_out, FFTW_ESTIMATE);
     }
 
     void process(const ProcessArgs& args) override {
@@ -118,63 +116,37 @@ struct FourierSynthesis : Module {
         if (inputs[INPUT_HARMONICS].isConnected()) numHarmonics += inputs[INPUT_HARMONICS].getVoltage();
 
         if (sampleRateIndex < sampleRate) {
-        // if (false) {
             sampleRateIndex++;
         } else {
             sampleRateIndex = 0;
             if (bufferIndex < bufferSize) {
                 // stream data from the input to the buffer
                 real_in[bufferIndex] = static_cast<double>(inputs[INPUT_LEFT].getVoltage());
-                
-                // real_in[bufferIndex] = sin(t*M_PI*2 / 12000); // test input
-                // real_in[bufferIndex] += -sin(t*M_PI*2*2 / 12000)/2; // test input
-                // real_in[bufferIndex] += sin(t*M_PI*2*3 / 12000)/3; // test input
-                // real_in[bufferIndex] += -sin(t*M_PI*2*4 / 12000)/4; // test input
-                // real_in[bufferIndex] = real_in[bufferIndex]
-                // real_in[bufferIndex] = cos(t*M_PI*2 / 12000); // test input
-                // // std::cout << t << " " << real_in[bufferIndex] << std::endl;
-                // // real_in[bufferIndex] = 2.0 * (t / 12000.0) - 1; // sawtooth wave formula
-                // t++;
-                // if (t >= 12000) {
-                //     t = 0;
-                // }
                 // simultaneously output the data from the previous buffer
                 // divide by bufferSize since the output of FFTW is scaled by the size of the input buffer
 
                 outputs[OUTPUT_LEFT].setVoltage(real_out[bufferIndex] / bufferSize);
-                // std::cout << t << " " << real_out[bufferIndex]/bufferSize << std::endl;
                 outputs[OUTPUT_RIGHT].setVoltage(inputs[INPUT_RIGHT].getVoltage());
+
+                // float brightness = clamp(fabs(real_out[bufferIndex] / bufferSize), 0.0f, 1.0f);
+                // lights[SIGNAL_LIGHT].setBrightness(brightness);
+
                 bufferIndex++;
             } else {
                 // make sure you don't miss a sample here
                 bufferIndex = 0;
                 fftw_execute(forward_plan);
 
-                // std::cout << "before" << std::endl;
                 // freqMagnitudes.resize(bufferSize / 2 + 1);
-                for (int i = 0; i < bufferSize / 2 + 1; i++) {
-                    // std::cout << i << ":" << freq_out[i][0] << ":" << freq_out[i][1] <<std::endl;
-                    // freqMagnitudes[i] = sqrt(freq_out[i][0] * freq_out[i][0] + freq_out[i][1] * freq_out[i][1]);
-                }
                 // modify frequency domain with custom waveforms based on chosen wavetable
                 applyCustomWaveform(waveformType, bufferSize, freq_out);
 
                 // compute magnitudes for the frequency domain (display)
-                // std::cout << "after" << std::endl;
                 freqMagnitudes.resize(bufferSize / 2 + 1);
                 for (int i = 0; i < bufferSize / 2 + 1; i++) {
-                    // std::cout << i << ":" << freq_out[i][0] << ":" << freq_out[i][1] <<std::endl;
                     freqMagnitudes[i] = sqrt(freq_out[i][0] * freq_out[i][0] + freq_out[i][1] * freq_out[i][1]);
                 }
-
-                // reconstruct negative frequencies for symmetry (not necessary, remove)
-                memcpy(symmetric_freq_out, freq_out, (bufferSize / 2 + 1) * sizeof(fftw_complex));
-                for (int i = 1; i < bufferSize / 2; i++) {
-                    int mirrorIndex = bufferSize - i;
-                    symmetric_freq_out[mirrorIndex][0] = freq_out[i][0];  // Copy real part
-                    symmetric_freq_out[mirrorIndex][1] = -freq_out[i][1]; // Negate imaginary part
-                }
-
+                
                 fftw_execute(backward_plan);
             }
         }
@@ -249,8 +221,9 @@ struct FourierSynthesis : Module {
     }
 };
 
-struct FrequencyDisplay : Widget {
+struct FrequencyDisplay : TransparentWidget {
     FourierSynthesis* module;
+    ModuleWidget* moduleWidget;
     std::vector<double>* freqData = nullptr; // pointer to frequency data
     int numBins = 0;                         // number of bins in display
 
@@ -272,7 +245,9 @@ struct FrequencyDisplay : Widget {
         }
     }
 
-    void draw(const DrawArgs& args) override {
+    void drawLayer(const DrawArgs& args, int layer) override {
+        if (layer != 1)
+            return; // Only draw on the foreground layer
         if (!freqData || freqData->empty()) return;
 
         // get widget size
@@ -292,31 +267,40 @@ struct FrequencyDisplay : Widget {
 
         // normalise data
         scale(*freqData);
+        // nvgGlobalCompositeOperation(vg, NVG_LIGHTER);
 
-        // Draw frequency spectrum (upper part)
-        nvgBeginPath(vg);
-        for (int i = 0; i < numBins; i++) {
-            float x = (float)i / numBins * width;
-            float barHeight = (*freqData)[i] * (height / 2); // Scale frequency magnitude
-            nvgRect(vg, x, (height / 2) - barHeight, width / numBins, barHeight);
-        }
-        nvgFillColor(vg, nvgRGB(230, 233, 169)); // LED white
-        nvgFill(vg);
 
-        // Draw mirrored frequency spectrum (lower part)
-        nvgBeginPath(vg);
-        for (int i = 0; i < numBins; i++) {
-            float x = (float)i / numBins * width;
-            float barHeight = (*freqData)[i] * (height / 2); // Scale frequency magnitude
-            nvgRect(vg, x, height / 2, width / numBins, barHeight);
+        for (int pass = 0; pass < 3; pass++) { // Multiple passes for a stronger glow
+            float alpha = (pass == 0) ? 0.2f : (pass == 1) ? 0.5f : 1.0f;
+            float spread = (pass == 0) ? 6.0f : (pass == 1) ? 3.0f : 1.0f;
+            // upper graph
+            nvgBeginPath(vg);
+            for (int i = 0; i < numBins; i++) {
+                float x = (float)i / numBins * width;
+                float barHeight = (*freqData)[i] * (height / 2); // Scale frequency magnitude
+                // nvgRect(vg, x, (height / 2) - barHeight, width / numBins, barHeight);
+                nvgRect(vg, x - spread / 2, (height / 2) - barHeight - spread / 2, (width / numBins) + spread, barHeight + spread);
+            }
+            nvgFillColor(vg, nvgRGBA(230, 233, 169, alpha * 255));
+            nvgFill(vg);
+
+            // lower graph
+            nvgBeginPath(vg);
+            for (int i = 0; i < numBins; i++) {
+                float x = (float)i / numBins * width;
+                float barHeight = (*freqData)[i] * (height / 2); // Scale frequency magnitude
+                // nvgRect(vg, x, height / 2, width / numBins, barHeight);
+                nvgRect(vg, x - spread / 2, (height / 2) - spread / 2, (width / numBins) + spread, barHeight + spread);
+            }
+            // nvgFillColor(vg, nvgRGB(230, 233, 169)); // LED white
+            nvgFillColor(vg, nvgRGBA(230, 233, 169, alpha * 255));
+            nvgFill(vg);
         }
-        nvgFillColor(vg, nvgRGB(230, 233, 169)); // LED white
-        nvgFill(vg);
+        nvgGlobalCompositeOperation(vg, NVG_SOURCE_OVER); // Reset blending mode
         // nvgFillColor(vg, nvgRGB(0, 200, 255)); //cyan
         // nvgFillColor(vg, nvgRGB(0, 0, 0)); //black
         // nvgFillColor(vg, nvgRGB(230, 233, 169)); //LED white
         // nvgFillColor(vg, nvgRGB(255, 255, 255)); //white
-        nvgFill(vg);
     }
 };
 
@@ -351,6 +335,8 @@ struct FourierSynthesisWidget : ModuleWidget {
         addOutput(createOutput<PJ301MPort>(Vec(153,329), module, FourierSynthesis::OUTPUT_LEFT));
         addOutput(createOutput<PJ301MPort>(Vec(182,329), module, FourierSynthesis::OUTPUT_RIGHT));
 
+        // addChild(createLight<MediumLight<RedLight>>(Vec(120, 290), module, FourierSynthesis::SIGNAL_LIGHT));
+
         // frequency display
         if (module) {
             auto* display = new FrequencyDisplay();
@@ -358,6 +344,8 @@ struct FourierSynthesisWidget : ModuleWidget {
             display->box.size = Vec(9 * RACK_GRID_WIDTH, 3 * RACK_GRID_WIDTH);
             display->freqData = &module->freqMagnitudes;
             display->setNumBins(module->bufferSize / 2 + 1);
+            display->module = module;
+            display->moduleWidget = this;
             addChild(display);
         }
     }

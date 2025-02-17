@@ -21,7 +21,6 @@ struct FourierSynthesis : Module {
     int sampleRateIndex;
     std::vector<double> leftFreqMagnitudes;
     std::vector<double> rightFreqMagnitudes;
-    int t; // testing purposes
 
     enum ParamIds {
         BUFFER_PARAM,
@@ -66,7 +65,6 @@ struct FourierSynthesis : Module {
         numHarmonics = params[HARMONICS_PARAM].getValue();
         bufferIndex = 0;
         sampleRateIndex = 0;
-        t = 0;
         initialiseResources();
     }
 
@@ -148,11 +146,6 @@ struct FourierSynthesis : Module {
                 outputs[OUTPUT_LEFT].setVoltage(left_buffer_out[bufferIndex] / bufferSize);
                 outputs[OUTPUT_RIGHT].setVoltage(right_buffer_out[bufferIndex] / bufferSize);
 
-                // outputs[OUTPUT_RIGHT].setVoltage(inputs[INPUT_RIGHT].getVoltage());
-
-                // float brightness = clamp(fabs(real_out[bufferIndex] / bufferSize), 0.0f, 1.0f);
-                // lights[SIGNAL_LIGHT].setBrightness(brightness);
-
                 bufferIndex++;
             } else {
                 // make sure you don't miss a sample here
@@ -167,6 +160,8 @@ struct FourierSynthesis : Module {
                 for (int i = 0; i < bufferSize / 2 + 1; i++) {
                     leftFreqMagnitudes[i] = sqrt(freq_out[i][0] * freq_out[i][0] + freq_out[i][1] * freq_out[i][1]);
                 }
+
+                scale(leftFreqMagnitudes);
                 fftw_execute(backward_plan);
                 memcpy(left_buffer_out, real_out, bufferSize*sizeof(double));
 
@@ -180,6 +175,7 @@ struct FourierSynthesis : Module {
                 for (int i = 0; i < bufferSize / 2 + 1; i++) {
                     rightFreqMagnitudes[i] = sqrt(freq_out[i][0] * freq_out[i][0] + freq_out[i][1] * freq_out[i][1]);
                 }
+                scale(rightFreqMagnitudes);
                 fftw_execute(backward_plan);
                 memcpy(right_buffer_out, real_out, bufferSize*sizeof(double));
                 
@@ -255,20 +251,7 @@ struct FourierSynthesis : Module {
         memcpy(freq_out, temp_freq_out, (bufferSize / 2 + 1) * sizeof(fftw_complex));
         fftw_free(temp_freq_out);
     }
-};
 
-struct FrequencyDisplay : TransparentWidget {
-    FourierSynthesis* module;
-    ModuleWidget* moduleWidget;
-    std::vector<double>* leftFreqData = nullptr; // pointer to frequency data
-    std::vector<double>* rightFreqData = nullptr;
-    int numBins = 0;                         // number of bins in display
-
-    void setNumBins(int bins) {
-        numBins = bins;
-    }
-
-    // map values between 0 and 1
     void scale(std::vector<double>& data) {
         double min_value = *std::min_element(data.begin(), data.end());
         double max_value = *std::max_element(data.begin(), data.end());
@@ -287,30 +270,24 @@ struct FrequencyDisplay : TransparentWidget {
             value = (value - min_value) / (max_value - min_value);
         }
     }
-    // void scale(std::vector<double>& data, double maxRange = 1.0) {
-    //     if (data.empty()) return;
+};
 
-    //     double max_value = *std::max_element(data.begin(), data.end());
-    //     if (max_value == 0.0) max_value = 1; // prevent division by zero
+struct FrequencyDisplay : TransparentWidget {
+    FourierSynthesis* module;
+    ModuleWidget* moduleWidget;
+    std::vector<double>* leftFreqData = nullptr; // pointer to frequency data
+    std::vector<double>* rightFreqData = nullptr;
+    int numBins = 0;                         // number of bins in display
 
-    //     for (auto& value : data) {
-    //         if (std::isnan(value) || std::isinf(value)) {
-    //             value = 0.0;  // Reset invalid values
-    //         } else {
-    //             value = (value / max_value) * maxRange; // scale to [0, maxRange]
-    //         }
-    //     }
-    // }
+    void setNumBins(int bins) {
+        numBins = bins;
+    }
 
     void drawLayer(const DrawArgs& args, int layer) override {
         if (layer != 1)
             return; // Only draw on the foreground layer
         if (!leftFreqData || leftFreqData->empty()) return;
         if (!rightFreqData || leftFreqData->empty()) return;
-        // std::cout << "freqs" << std::endl;
-        // for (auto& value : *leftFreqData) {
-        //     std::cout << value << std::endl;
-        // }
         // get widget size
         NVGcontext* vg = args.vg;
         float width = box.size.x;
@@ -319,7 +296,6 @@ struct FrequencyDisplay : TransparentWidget {
         // update number of bins
         numBins = (*leftFreqData).size();
         (*leftFreqData).resize(numBins, 0.0f);
-        numBins = (*rightFreqData).size();
         (*rightFreqData).resize(numBins, 0.0f);
 
         // draw background (temporary for positioning)
@@ -329,22 +305,22 @@ struct FrequencyDisplay : TransparentWidget {
         // nvgFill(vg);
 
         // normalise data
-        scale(*leftFreqData);
-        scale(*rightFreqData);
+        // scale(*leftFreqData);
+        // scale(*rightFreqData);
         // for (auto& value : *freqData) {
         //     value = std::log10(value);
         // }
         // nvgGlobalCompositeOperation(vg, NVG_LIGHTER);
 
 
-        for (int pass = 0; pass < 3; pass++) { // Multiple passes for a stronger glow
+        for (int pass = 0; pass < 3; pass++) {
             float alpha = (pass == 0) ? 0.2f : (pass == 1) ? 0.5f : 1.0f;
             float spread = (pass == 0) ? 6.0f : (pass == 1) ? 3.0f : 1.0f;
             // upper graph
             nvgBeginPath(vg);
             for (int i = 0; i < numBins; i++) {
                 float x = (float)i / numBins * width;
-                float barHeight = (*leftFreqData)[i] * (height / 2); // Scale frequency magnitude
+                float barHeight = clamp((*leftFreqData)[i] * (height / 2), 0.0f, height / 2); // Scale frequency magnitude
                 // nvgRect(vg, x, (height / 2) - barHeight, width / numBins, barHeight);
                 nvgRect(vg, x - spread / 2, (height / 2) - barHeight - spread / 2, (width / numBins) + spread, barHeight + spread);
             }
@@ -355,7 +331,7 @@ struct FrequencyDisplay : TransparentWidget {
             nvgBeginPath(vg);
             for (int i = 0; i < numBins; i++) {
                 float x = (float)i / numBins * width;
-                float barHeight = (*rightFreqData)[i] * (height / 2); // Scale frequency magnitude
+                float barHeight = clamp((*rightFreqData)[i] * (height / 2), 0.0f, height / 2); // Scale frequency magnitude
                 // nvgRect(vg, x, height / 2, width / numBins, barHeight);
                 nvgRect(vg, x - spread / 2, (height / 2) - spread / 2, (width / numBins) + spread, barHeight + spread);
             }
@@ -379,14 +355,10 @@ struct FourierSynthesisWidget : ModuleWidget {
         setModule(module);
         setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/fourier_bg.svg")));
 
-        addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, 0)));
-        addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
-        addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
-        addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
-        // addChild(createWidget<ScrewSilver>(Vec(0, 0)));
-        // addChild(createWidget<ScrewSilver>(Vec(box.size.x - RACK_GRID_WIDTH, 0)));
-        // addChild(createWidget<ScrewSilver>(Vec(0, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
-        // addChild(createWidget<ScrewSilver>(Vec(box.size.x - RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
+        // addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, 0)));
+        // addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
+        // addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
+        // addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
         addInput(createInput<PJ301MPort>(Vec(18,329), module, FourierSynthesis::INPUT_LEFT));
         addInput(createInput<PJ301MPort>(Vec(47,329), module, FourierSynthesis::INPUT_RIGHT));

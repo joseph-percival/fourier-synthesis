@@ -58,6 +58,9 @@ struct FourierSynthesis : Module {
         configParam(WAVEFORM_PARAM,0.f,2.f,1.f,"Waveform Type");
         configParam(HARMONICS_PARAM,1.f,100.f,10.f,"Number of Harmonics");
 		getParamQuantity(HARMONICS_PARAM)->snapEnabled = true;
+        configInput(INPUT_SAMPLE_RATE, "Sample Rate Input");
+        configInput(INPUT_WAVEFORM, "Waveform Type Input");
+        configInput(INPUT_HARMONICS, "Harmonics Input");
         // initialise params & buffers
         bufferSize = params[BUFFER_PARAM].getValue();
         sampleRate = params[SAMPLE_RATE_PARAM].getValue();
@@ -128,9 +131,9 @@ struct FourierSynthesis : Module {
             initialiseResources();
         }
 
-        if (inputs[INPUT_SAMPLE_RATE].isConnected()) sampleRate += inputs[INPUT_SAMPLE_RATE].getVoltage();
-        if (inputs[INPUT_WAVEFORM].isConnected()) waveformType += inputs[INPUT_WAVEFORM].getVoltage();
-        if (inputs[INPUT_HARMONICS].isConnected()) numHarmonics += inputs[INPUT_HARMONICS].getVoltage();
+        if (inputs[INPUT_SAMPLE_RATE].isConnected()) sampleRate = clamp(sampleRate+inputs[INPUT_SAMPLE_RATE].getVoltage(),0.f,50.f);
+        if (inputs[INPUT_WAVEFORM].isConnected()) waveformType = clamp(waveformType+inputs[INPUT_WAVEFORM].getVoltage(),0.f,2.f);
+        if (inputs[INPUT_HARMONICS].isConnected()) numHarmonics = clamp(numHarmonics+inputs[INPUT_HARMONICS].getVoltage(),1.f,100.f);
 
         if (sampleRateIndex < sampleRate) {
             sampleRateIndex++;

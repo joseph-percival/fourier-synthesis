@@ -1,22 +1,16 @@
 {
 	"slug": "fourier-synthesis-plugin",
-	"name": "Fourier Synthesis Demo",
+	"name": "Fourier Synthesis",
 	"author": "Joseph Percival",
     "license": "CC0-1.0",
     "version": "2.0.0",
 	"modules":
 	[
 		{
-			"slug": "test",
-			"name": "Test",
-			"description": "Naive VCO",
-			"tags": ["VCO", "Polyphonic"]
-		},
-		{
 			"slug": "fourier-synthesis",
 			"name": "Fourier Synthesis",
-			"description": "Naive VCO",
-			"tags": ["VCO", "Polyphonic"]
+			"description": "Processes audio input through a discrete Fourier transform, modifies harmonics to construct sawtooth or square waves via inverse Fourier transform, with parameters for bitcrushing, buffer size, harmonic count, and waveform type.",
+			"tags": ["Effect", "Waveshaper", "Bitcrusher", "Distortion"]
 		}
     ]
 }

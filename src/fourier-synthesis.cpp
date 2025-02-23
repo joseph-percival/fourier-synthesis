@@ -58,9 +58,9 @@ struct FourierSynthesis : Module {
         configParam(WAVEFORM_PARAM,0.f,2.f,1.f,"Waveform Type");
         configParam(HARMONICS_PARAM,1.f,100.f,10.f,"Number of Harmonics");
 		getParamQuantity(HARMONICS_PARAM)->snapEnabled = true;
-        configInput(INPUT_SAMPLE_RATE, "Sample Rate Input");
-        configInput(INPUT_WAVEFORM, "Waveform Type Input");
-        configInput(INPUT_HARMONICS, "Harmonics Input");
+        configInput(INPUT_SAMPLE_RATE, "Sample Rate");
+        configInput(INPUT_WAVEFORM, "Waveform Type");
+        configInput(INPUT_HARMONICS, "Harmonics");
         // initialise params & buffers
         bufferSize = params[BUFFER_PARAM].getValue();
         sampleRate = params[SAMPLE_RATE_PARAM].getValue();
@@ -181,8 +181,6 @@ struct FourierSynthesis : Module {
                 scale(rightFreqMagnitudes);
                 fftw_execute(backward_plan);
                 memcpy(right_buffer_out, real_out, bufferSize*sizeof(double));
-                
-
             }
         }
     }

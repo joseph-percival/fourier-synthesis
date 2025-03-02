@@ -6,3 +6,9 @@ Fourier Synthesis asks the question: what if the Fourier transform used sawtooth
 The module makes use of the FFTW library, which can handle any integer buffer size selected by the buffer size parameter. Additional parameters include sample rate reduction, waveform shape, and number of harmonics, giving plenty of options to experiment with.
 
 I reccommend starting off with a small buffer size and slowly increasing it as you experiment with the other parameters. There is also the option of daisy-chaining this module; you can also find some interesting effects with just one module by plugging the left output into the right input or vice versa (connecting left and left or right and right will cause a feedback loop).
+
+## Setup Instructions
+
+1. Run `./setup.sh` to download and compile the FFTW library.
+2. Build the module with `make`.
+3. Load the module into VCV Rack as usual.

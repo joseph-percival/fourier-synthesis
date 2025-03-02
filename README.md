@@ -9,6 +9,6 @@ I reccommend starting off with a small buffer size and slowly increasing it as y
 
 ## Setup Instructions
 
+1. Clone this repository into the relevant plugins folder according to the instructions listed [here](https://vcvrack.com/manual/Building)
 1. Run `./setup.sh` to download and compile the FFTW library.
 2. Build the module with `make`.
-3. Load the module into VCV Rack as usual.

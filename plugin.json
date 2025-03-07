@@ -7,12 +7,6 @@
 	"modules":
 	[
 		{
-			"slug": "test",
-			"name": "Test",
-			"description": "Naive VCO",
-			"tags": ["VCO", "Polyphonic"]
-		},
-		{
 			"slug": "fourier-synthesis",
 			"name": "Fourier Synthesis",
 			"description": "Processes audio input through a discrete Fourier transform, modifies harmonics to construct sawtooth or square waves via inverse Fourier transform, with parameters for bitcrushing, buffer size, harmonic count, and waveform type.",
